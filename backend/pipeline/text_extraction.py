@@ -101,7 +101,7 @@ def _extract_text_from_images(images: List[Image.Image]) -> str:
         page_text = chat_completion_with_vision(
             model=TEXT_EXTRACTION_MODEL,
             messages=messages,
-            temperature=0.1,
+            temperature=0.0,
             max_tokens=None,
         )
 

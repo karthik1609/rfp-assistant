@@ -71,7 +71,7 @@ def run_extraction_agent(document_text: str) -> ExtractionResult:
             {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.1,
+        temperature=0.0,
         max_tokens=None,
     )
 
@@ -157,7 +157,7 @@ def run_extraction_agent(document_text: str) -> ExtractionResult:
     translated_text = data.get("translated_text") or document_text
 
     result = ExtractionResult(
-        translated_text=translated_text,
+        translated_text="",  # Don't include original text in extraction output
         language=data.get("language", "en"),
         cpv_codes=data.get("cpv_codes", []) or [],
         other_codes=data.get("other_codes", []) or [],

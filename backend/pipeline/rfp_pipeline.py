@@ -43,10 +43,8 @@ def run_rfp_pipeline(rfp_text: str, request_id: Optional[str] = None) -> RFPPipe
     )
 
     logger.info("REQUEST %s: step 2/3 – scope agent", rid)
-    scope_res = run_scope_agent(
-        translated_text=extraction_res.translated_text,
-        structured_info=extraction_res.raw_structured,
-    )
+    # Pass only the plain OCR text to the scope agent (no structured info)
+    scope_res = run_scope_agent(translated_text=rfp_text)
     logger.info(
         "REQUEST %s: scope complete (essential_chars=%d, removed_chars=%d)",
         rid,
@@ -56,13 +54,14 @@ def run_rfp_pipeline(rfp_text: str, request_id: Optional[str] = None) -> RFPPipe
 
     # NOTE (human-in-the-loop):
     # In a real application you would persist `scope_res` and present it to a user
-    # who can approve or edit `scope_res.essential_text` and `scope_res.merged_structured_info`
-    # before moving to the next step. For now we assume automatic approval.
+    # who can approve or edit `scope_res.essential_text` before moving to the next step.
+    # For now we assume automatic approval.
 
     logger.info("REQUEST %s: step 3/3 – requirements agent", rid)
+    # Requirements agent only receives the scoped essential text (no structured info)
     requirements_res = run_requirements_agent(
         essential_text=scope_res.essential_text,
-        structured_info=scope_res.merged_structured_info,
+        structured_info={},
     )
     logger.info(
         "REQUEST %s: requirements complete (solution=%d, response_structure=%d)",

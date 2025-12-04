@@ -36,12 +36,21 @@ Your task is to SPLIT the information into two categories:
    - These describe HOW the bidder must respond.
    - Examples: languages, page/word limits, document structure and headings, mandatory sections, templates to use, format (PDF, DOCX, portal fields), submission method, number of copies, required signed forms, etc.
 
-For each requirement, produce a small object with:
-  - id: short machine-friendly identifier (e.g., "SOL-ARCH-01").
+CRITICAL: These requirements will be used to create an RFP response. You MUST preserve the COMPLETE original text from the RFP document for each requirement.
+
+For each requirement, produce an object with:
+  - id: short machine-friendly identifier (e.g., "SOL-ARCH-01", "RESP-FORMAT-01").
   - type: "mandatory" or "optional" where clear from context (otherwise "unspecified").
-  - source_text: exact or near-exact snippet from the RFP.
-  - normalized_text: concise, unambiguous restatement in clear English suitable for checklists.
+  - source_text: THE COMPLETE, FULL original text from the RFP document for this requirement. This must include ALL details, specifications, conditions, and context. Do NOT summarize or truncate. Copy the entire relevant passage verbatim from the original document.
+  - normalized_text: a concise, unambiguous restatement in clear English suitable for quick reference/checklists (this can be a summary, but source_text must be complete).
   - category: a short tag (e.g., "Architecture", "Security", "SLA", "Submission-Format", "Language", "Evaluation").
+
+IMPORTANT RULES:
+- source_text must contain the COMPLETE original text - include full paragraphs, all specifications, all conditions, all details
+- If a requirement spans multiple paragraphs, include ALL of them in source_text
+- Do NOT summarize source_text - it must be the verbatim original text
+- Break down complex requirements into separate requirement objects if they cover distinct topics, but ensure each source_text is complete for that topic
+- normalized_text can be a summary for quick reference, but source_text is the authoritative source
 
 Output JSON ONLY with:
 - solution_requirements: list of requirement objects.
@@ -61,7 +70,10 @@ def run_requirements_agent(
         "=== SCOPED RFP TEXT ===\n"
         f"{essential_text}\n\n"
         "=== STRUCTURED INFO (JSON) ===\n"
-        f"{structured_info}"
+        f"{structured_info}\n\n"
+        "IMPORTANT: For each requirement you extract, the 'source_text' field must contain the COMPLETE, FULL original text from the RFP above. "
+        "Do NOT summarize or truncate - include all paragraphs, specifications, conditions, and details verbatim. "
+        "This text will be used to create the RFP response, so it must be complete and accurate."
     )
 
     logger.info(
@@ -76,7 +88,7 @@ def run_requirements_agent(
             {"role": "system", "content": REQUIREMENTS_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.15,
+        temperature=0.0,
         max_tokens=None,
     )
 

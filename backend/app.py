@@ -4,20 +4,23 @@ import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
 from backend.pipeline.text_extraction import extract_text_from_file
-from backend.pipeline.rfp_pipeline import run_rfp_pipeline
+from backend.agents.extraction_agent import run_extraction_agent
+from backend.agents.scope_agent import run_scope_agent
+from backend.agents.requirements_agent import run_requirements_agent
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+# Simple backend logging: logs go to stdout/stderr and are visible in Docker logs
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 logger = logging.getLogger(__name__)
 
 
@@ -76,29 +79,101 @@ async def process_rfp(file: UploadFile = File(...)) -> Dict[str, Any]:
                 "REQUEST %s: failed to remove temp file %s", request_id, temp_path
             )
 
+        logger.info(
+            "REQUEST %s: OCR extracted %d characters of text from document",
+            request_id,
+            len(text),
+        )
+
     if not text.strip():
         logger.warning("REQUEST %s: no text extracted from file", request_id)
         raise HTTPException(status_code=400, detail="No text could be extracted from file.")
 
+    # Step 1: extraction agent (structured info only)
     try:
-        pipeline_output = run_rfp_pipeline(text, request_id=request_id)
+        extraction_res = run_extraction_agent(text)
     except Exception as exc:
         elapsed = time.time() - t0
         logger.exception(
-            "REQUEST %s: pipeline failed after %.2fs: %s", request_id, elapsed, exc
+            "REQUEST %s: extraction agent failed after %.2fs: %s",
+            request_id,
+            elapsed,
+            exc,
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Pipeline failed for request {request_id}. Check server logs.",
+            detail=f"Extraction agent failed for request {request_id}. Check server logs.",
+        ) from exc
+
+    logger.info(
+        "REQUEST %s: extraction agent finished (lang=%s, cpv=%d, other_codes=%d)",
+        request_id,
+        extraction_res.language,
+        len(extraction_res.cpv_codes),
+        len(extraction_res.other_codes),
+    )
+
+    # Step 2: scope agent (on plain OCR text only)
+    try:
+        scope_res = run_scope_agent(translated_text=text)
+    except Exception as exc:
+        elapsed = time.time() - t0
+        logger.exception(
+            "REQUEST %s: scope agent failed after %.2fs: %s", request_id, elapsed, exc
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Scope agent failed for request {request_id}. Check server logs.",
         ) from exc
 
     elapsed = time.time() - t0
-    logger.info("REQUEST %s: pipeline completed in %.2fs", request_id, elapsed)
+    logger.info(
+        "REQUEST %s: scope agent finished (essential_chars=%d, removed_chars=%d)",
+        request_id,
+        len(scope_res.essential_text or ""),
+        len(scope_res.removed_text or ""),
+    )
+    logger.info("REQUEST %s: extraction + scope completed in %.2fs", request_id, elapsed)
 
-    # Include the raw OCR text from Qwen in the response so the frontend can display it.
-    response = pipeline_output.to_dict()
-    response["ocr_source_text"] = text
+    # Combine OCR text with extraction + scope outputs; requirements come later
+    response: Dict[str, Any] = {
+        "extraction": extraction_res.to_dict(),
+        "scope": scope_res.to_dict(),
+        "requirements": None,
+        "ocr_source_text": text,
+    }
+    # Also include OCR text under extraction for convenience
+    response["extraction"]["ocr_text"] = text
     return response
+
+
+class RequirementsRequest(BaseModel):
+    essential_text: str
+
+
+@app.post("/run-requirements")
+async def run_requirements(req: RequirementsRequest) -> Dict[str, Any]:
+    """
+    Run the requirements agent on scoped text.
+    This is called only after the human has accepted the scope in the UI.
+    """
+    logger.info(
+        "Requirements endpoint called (essential_chars=%d)", len(req.essential_text)
+    )
+    try:
+        result = run_requirements_agent(essential_text=req.essential_text, structured_info={})
+    except Exception as exc:
+        logger.exception("Requirements agent failed: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Requirements agent failed. Check server logs.",
+        ) from exc
+    logger.info(
+        "Requirements agent completed (solution=%d, response_structure=%d)",
+        len(result.solution_requirements),
+        len(result.response_structure_requirements),
+    )
+    return result.to_dict()
 
 
 @app.get("/health")
