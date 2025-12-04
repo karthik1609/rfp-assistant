@@ -13,25 +13,32 @@
         background: #0f172a;
         color: #e5e7eb;
       }
-      header {
-        padding: 1.5rem 2rem;
-        background: #020617;
-        border-bottom: 1px solid #1f2937;
-      }
       main {
-        max-width: 1100px;
-        margin: 1.5rem auto 3rem;
+        max-width: 1200px;
+        margin: 2rem auto 3rem;
         padding: 0 1.5rem;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 1.5rem;
+        align-items: flex-start;
+      }
+      @media (max-width: 960px) {
+        .layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
       h1 {
         font-size: 1.6rem;
         margin: 0;
       }
       .card {
-        background: #020617;
+        background: radial-gradient(circle at top left, #020617, #020617 40%, #020617);
         border-radius: 0.75rem;
         padding: 1.5rem;
-        border: 1px solid #1f2937;
+        border: 1px solid rgba(148, 163, 184, 0.15);
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.85);
         margin-bottom: 1.5rem;
       }
       .card h2 {
@@ -80,17 +87,17 @@
         padding: 0.2rem 0.6rem;
         border-radius: 999px;
         font-size: 0.75rem;
-        border: 1px solid #1f2937;
-        background: #020617;
-        color: #9ca3af;
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.4));
+        color: #e5e7eb;
       }
       pre {
         max-height: 260px;
         overflow: auto;
         padding: 0.75rem;
-        background: #020617;
-        border-radius: 0.5rem;
-        border: 1px solid #1f2937;
+        background: radial-gradient(circle at top left, #020617, #020617 55%, #020617);
+        border-radius: 0.75rem;
+        border: 1px solid rgba(148, 163, 184, 0.18);
         font-size: 0.8rem;
         white-space: pre-wrap;
         word-break: break-word;
@@ -106,9 +113,9 @@
         font-size: 0.75rem;
         padding: 0.2rem 0.6rem;
         border-radius: 999px;
-        border: 1px solid #1f2937;
-        color: #9ca3af;
-        background: #020617;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+        color: #e5e7eb;
+        background: radial-gradient(circle at top left, #0b1220, #020617);
       }
       .pill-processing {
         border-color: #f59e0b;
@@ -134,7 +141,7 @@
         padding: 0.5rem;
         background: #020617;
         border-radius: 0.5rem;
-        border: 1px solid #1f2937;
+        border: 1px solid rgba(148, 163, 184, 0.2);
       }
       .agent-summary strong {
         color: #9ca3af;
@@ -163,6 +170,7 @@
         background: transparent;
         color: #9ca3af;
         cursor: pointer;
+        transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
       }
       .tab-button.active {
         color: #e5e7eb;
@@ -180,32 +188,32 @@
     </style>
   </head>
   <body>
-    <header>
-      <h1>RFP Assistant</h1>
-      <div style="font-size: 0.9rem; color: #9ca3af; margin-top: 0.35rem">
-        Upload an RFP (PDF/DOCX), then inspect each agent’s output and approve
-        the scoped text before viewing requirements.
-      </div>
-    </header>
     <main>
-      <section class="card">
-        <h2>1. Upload RFP</h2>
-        <div class="upload-row">
-          <input id="file-input" type="file" accept=".pdf,.doc,.docx" />
-          <button id="upload-btn">Upload &amp; process</button>
-        </div>
-        <div id="status" class="status"></div>
-      </section>
+      <div class="layout" id="layout">
+        <div>
+          <section class="card">
+            <div style="margin-bottom: 1rem;">
+              <h2 style="margin: 0;">RFP Processing</h2>
+              <div class="subheading" style="margin-top: 0.25rem;">
+                Upload an RFP document and inspect each agent’s view of the text.
+              </div>
+            </div>
+            <div class="upload-row">
+              <input id="file-input" type="file" accept=".pdf,.doc,.docx" />
+              <button id="upload-btn">Upload &amp; process</button>
+            </div>
+            <div id="status" class="status"></div>
+          </section>
 
-      <section class="card" id="agents-section" style="display: none">
-        <div class="tabs">
-          <button class="tab-button active" data-tab="ocr">1. OCR (Qwen)</button>
-          <button class="tab-button" data-tab="extraction">2. Extraction agent</button>
-          <button class="tab-button" data-tab="scope">3. Scope</button>
-          <button class="tab-button" data-tab="requirements">4. Requirements</button>
-        </div>
+          <section class="card" id="agents-section" style="display: none">
+            <div class="tabs">
+              <button class="tab-button active" data-tab="ocr">1. OCR (Qwen)</button>
+              <button class="tab-button" data-tab="extraction">2. Extraction agent</button>
+              <button class="tab-button" data-tab="scope">3. Scope</button>
+              <button class="tab-button" data-tab="requirements">4. Requirements</button>
+            </div>
 
-        <div class="columns">
+            <div class="columns">
           <!-- Tab 1: Raw OCR text -->
           <div id="tab-ocr" class="tab-panel active">
             <div class="agent-header">
@@ -263,7 +271,9 @@
             <pre id="requirements-output">Accept scoped text to reveal…</pre>
           </div>
         </div>
-      </section>
+          </section>
+        </div>
+      </div>
     </main>
 
     <script>
@@ -286,6 +296,7 @@
       const extractionStatus = document.getElementById("extraction-status");
       const scopeStatus = document.getElementById("scope-status");
       const reqStatus = document.getElementById("req-status");
+      const layout = document.getElementById("layout");
 
       let lastPipelineResult = null;
 
@@ -402,12 +413,12 @@
           const scopeSummary = `Essential: ${data.scope?.essential_text?.length || 0} chars, Removed: ${data.scope?.removed_text?.length || 0} chars`;
           document.getElementById("scope-summary").innerHTML = `<strong>Status:</strong> Complete<br><strong>Summary:</strong> ${scopeSummary}`;
 
-          // Update requirements agent
-          updateAgentStatus("requirements", "complete", reqPill, reqStatus);
-          const reqSummary = `Solution: ${data.requirements?.solution_requirements?.length || 0}, Response structure: ${data.requirements?.response_structure_requirements?.length || 0}`;
-          document.getElementById("req-summary").innerHTML = `<strong>Status:</strong> Complete<br><strong>Summary:</strong> ${reqSummary}`;
+          // Requirements not yet run; wait for human confirmation
+          updateAgentStatus("requirements", "waiting", reqPill, reqStatus);
+          document.getElementById("req-summary").innerHTML =
+            "<strong>Status:</strong> Waiting for scope approval<br><strong>Summary:</strong> Run after you accept the scoped text.";
 
-          setStatus("Pipeline finished. Review each agent's output.");
+          setStatus("Extraction and scope finished. Review, then accept scope to run requirements.");
 
           // After processing, show OCR tab first
           switchTab("ocr");
@@ -420,16 +431,55 @@
         }
       });
 
-      acceptScope.addEventListener("change", () => {
+      acceptScope.addEventListener("change", async () => {
         if (!lastPipelineResult) return;
         if (acceptScope.checked) {
-          requirementsOutput.textContent = formatJson(
-            lastPipelineResult.requirements,
-          );
-          reqPill.classList.add("pill-ok");
+          // Run requirements agent only after human acceptance
+          try {
+            updateAgentStatus("requirements", "processing", reqPill, reqStatus);
+            document.getElementById("req-summary").innerHTML =
+              "<strong>Status:</strong> Processing<br><strong>Summary:</strong> Running requirements agent...";
+
+            const response = await fetch(`${API_BASE}/run-requirements`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                essential_text: lastPipelineResult.scope?.essential_text || "",
+              }),
+            });
+
+            if (!response.ok) {
+              const text = await response.text();
+              updateAgentStatus("requirements", "error", reqPill, reqStatus);
+              throw new Error(
+                `Requirements backend error ${response.status}: ${text.slice(
+                  0,
+                  200,
+                )}`,
+              );
+            }
+
+            const reqData = await response.json();
+            lastPipelineResult.requirements = reqData;
+
+            requirementsOutput.textContent = formatJson(reqData);
+            const reqSummary = `Solution: ${reqData?.solution_requirements?.length || 0}, Response structure: ${reqData?.response_structure_requirements?.length || 0}`;
+            document.getElementById("req-summary").innerHTML = `<strong>Status:</strong> Complete<br><strong>Summary:</strong> ${reqSummary}`;
+            reqPill.classList.add("pill-ok");
+            updateAgentStatus("requirements", "complete", reqPill, reqStatus);
+          } catch (err) {
+            console.error(err);
+            requirementsOutput.textContent = `Failed to run requirements agent: ${err.message}`;
+            updateAgentStatus("requirements", "error", reqPill, reqStatus);
+          }
         } else {
           requirementsOutput.textContent = "Accept scoped text to reveal…";
           reqPill.classList.remove("pill-ok");
+          updateAgentStatus("requirements", "waiting", reqPill, reqStatus);
+          document.getElementById("req-summary").innerHTML =
+            "<strong>Status:</strong> Waiting for scope approval<br><strong>Summary:</strong> Run after you accept the scoped text.";
         }
       });
     </script>
