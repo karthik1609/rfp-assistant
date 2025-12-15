@@ -209,11 +209,15 @@ async def process_rfp(file: UploadFile = File(...)) -> Dict[str, Any]:
     logger.info("REQUEST %s: /process-rfp file=%s", request_id, file.filename)
 
     suffix = Path(file.filename).suffix.lower()
-    if suffix not in {".pdf", ".docx", ".doc"}:
+    # Supported input types: PDF, Word (DOCX/DOC), Excel (XLS/XLSX), and plain text
+    if suffix not in {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt"}:
         logger.warning("REQUEST %s: unsupported file type %s", request_id, suffix)
         raise HTTPException(
             status_code=400,
-            detail="Unsupported file type. Please upload a PDF or DOCX/DOC file.",
+            detail=(
+                "Unsupported file type. Please upload one of: "
+                "PDF, DOCX, DOC, XLSX, XLS, or TXT."
+            ),
         )
 
     temp_path = Path("/tmp") / f"{request_id}_{file.filename}"

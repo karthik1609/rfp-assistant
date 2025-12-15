@@ -188,6 +188,49 @@ def _extract_text_from_docx_direct(docx_path: Path) -> str:
         return ""
 
 
+def _extract_text_from_excel_direct(excel_path: Path) -> str:
+    """Extract text from Excel files (.xlsx, .xls) by converting sheets to plain text."""
+    try:
+        import pandas as pd  # type: ignore
+    except ImportError:
+        logger.warning(
+            "[EXCEL Direct Extraction] pandas library not available, skipping direct extraction. "
+            "Install with: pip install pandas openpyxl"
+        )
+        return ""
+
+    try:
+        logger.info(
+            "[EXCEL Direct Extraction] Starting direct text extraction from EXCEL: %s",
+            excel_path.name,
+        )
+        xls = pd.ExcelFile(str(excel_path))
+        text_parts: List[str] = []
+
+        for sheet_name in xls.sheet_names:
+            logger.info(
+                "[EXCEL Direct Extraction] Extracting sheet '%s' to text", sheet_name
+            )
+            df = xls.parse(sheet_name)
+            if not df.empty:
+                text_parts.append(f"=== Sheet: {sheet_name} ===")
+                # Convert the dataframe to a simple text table (no index)
+                text_parts.append(df.to_string(index=False))
+
+        full_text = "\n\n".join(text_parts)
+        logger.info(
+            "[EXCEL Direct Extraction] Completed: %d characters from %d sheet(s)",
+            len(full_text),
+            len(xls.sheet_names),
+        )
+        return full_text
+    except Exception as e:
+        logger.error(
+            "[EXCEL Direct Extraction] Failed with error: %s", str(e), exc_info=True
+        )
+        return ""
+
+
 def extract_text_from_file(path: PathLike) -> str:
     p = Path(path)
     suffix = p.suffix.lower()
@@ -208,9 +251,31 @@ def extract_text_from_file(path: PathLike) -> str:
             extraction_method = "python-docx"
         else:
             logger.info("[Text Extraction] .doc files not supported for direct extraction, skipping to OCR")
+    elif suffix in {".xlsx", ".xls"}:
+        logger.info("[Text Extraction] Attempting direct EXCEL extraction (pandas)...")
+        direct_text = _extract_text_from_excel_direct(p)
+        extraction_method = "pandas-excel"
+    elif suffix == ".txt":
+        logger.info("[Text Extraction] Reading plain text file directly...")
+        try:
+            direct_text = p.read_text(encoding="utf-8", errors="ignore")
+            extraction_method = "plain-text"
+        except Exception as e:
+            logger.error("[Text Extraction] Failed to read text file: %s", e, exc_info=True)
+            direct_text = ""
+            extraction_method = "plain-text"
     else:
         raise ValueError(f"Unsupported file type for path: {path}")
     direct_text_length = len(direct_text.strip()) if direct_text else 0
+    # For plain text and Excel files we do not perform OCR fallback; always return direct text.
+    if suffix in {".txt", ".xlsx", ".xls"}:
+        logger.info(
+            "[Text Extraction] Using direct extraction for %s (no OCR fallback). Characters: %d",
+            suffix.upper(),
+            direct_text_length,
+        )
+        return direct_text or ""
+
     if direct_text and direct_text_length >= MIN_TEXT_LENGTH:
         logger.info("=" * 80)
         logger.info("[Text Extraction] ✓ SUCCESS: Direct extraction successful!")
