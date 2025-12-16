@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import json
 import logging
 from typing import Any, Dict, List, Optional
@@ -11,9 +12,12 @@ from backend.agents.prompts import STRUCTURE_DETECTION_SYSTEM_PROMPT
 logger = logging.getLogger(__name__)
 STRUCTURE_DETECTION_MODEL = "gpt-5-chat"
 
-def detect_structure(
-    response_structure_requirements: List[RequirementItem],
-) -> Dict[str, Any]:
+@functools.lru_cache(maxsize=128)
+def _detect_structure_cached(response_structure_json: str) -> Dict[str, Any]:
+    response_structure_requirements = [
+        RequirementItem(**r) for r in json.loads(response_structure_json)
+    ]
+    
     if not response_structure_requirements:
         logger.info("Structure detection: No response structure requirements found")
         return {
@@ -24,7 +28,6 @@ def detect_structure(
             "confidence": 1.0,
         }
     
-    # Combine all response structure requirements into a single text
     structure_text = "\n\n".join([
         f"[{req.type.upper()}] {req.normalized_text}\nSource: {req.source_text}"
         for req in response_structure_requirements
@@ -109,4 +112,31 @@ Output JSON with:
             "structure_description": f"Structure detection failed: {str(e)}",
             "confidence": 0.0,
         }
+
+def detect_structure(
+    response_structure_requirements: List[RequirementItem],
+) -> Dict[str, Any]:
+    response_structure_json = json.dumps(
+        [r.model_dump() for r in response_structure_requirements],
+        sort_keys=True
+    )
+    
+    cache_info = _detect_structure_cached.cache_info()
+    logger.info(
+        "Structure detection: starting (cache_hits=%d, cache_misses=%d, cache_size=%d/%d)",
+        cache_info.hits,
+        cache_info.misses,
+        cache_info.currsize,
+        cache_info.maxsize,
+    )
+    
+    result = _detect_structure_cached(response_structure_json)
+    
+    new_cache_info = _detect_structure_cached.cache_info()
+    if new_cache_info.hits > cache_info.hits:
+        logger.info("Structure detection: cache HIT - returned cached result")
+    else:
+        logger.info("Structure detection: cache MISS - processed new request")
+    
+    return result
 

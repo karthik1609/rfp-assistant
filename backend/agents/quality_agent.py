@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import json
 import logging
 from typing import Dict, Any, List
 
@@ -11,25 +13,13 @@ logger = logging.getLogger(__name__)
 QUALITY_MODEL = "gpt-5-chat"
 
 
-def assess_response_quality(
-    requirement: RequirementItem,
+@functools.lru_cache(maxsize=256)
+def _assess_response_quality_cached(
+    requirement_json: str,
     response_text: str,
 ) -> Dict[str, Any]:
-    """
-    Assess the quality of a response for a requirement.
+    requirement = RequirementItem(**json.loads(requirement_json))
     
-    Args:
-        requirement: The requirement being addressed
-        response_text: The generated response text
-        
-    Returns:
-        Dictionary with quality assessment:
-        - score: float (0-100)
-        - completeness: str (complete/partial/incomplete)
-        - relevance: str (high/medium/low)
-        - issues: List[str]
-        - suggestions: List[str]
-    """
     logger.info("Quality assessment: evaluating response for requirement %s", requirement.id)
     
     user_prompt = f"""Evaluate the quality of this RFP response:
@@ -62,8 +52,6 @@ Output JSON format."""
             max_tokens=800,
         )
         
-        # Parse JSON response
-        import json
         import re
         cleaned = content.replace("```json", "").replace("```", "").strip()
         json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
@@ -72,7 +60,6 @@ Output JSON format."""
         else:
             result = json.loads(cleaned)
         
-        # Validate and normalize
         score = float(result.get("score", 50))
         score = max(0, min(100, score))
         
@@ -117,4 +104,30 @@ Output JSON format."""
             "issues": [f"Quality assessment failed: {str(e)}"],
             "suggestions": [],
         }
+
+
+def assess_response_quality(
+    requirement: RequirementItem,
+    response_text: str,
+) -> Dict[str, Any]:
+    requirement_json = json.dumps(requirement.model_dump(), sort_keys=True)
+    
+    cache_info = _assess_response_quality_cached.cache_info()
+    logger.info(
+        "Quality assessment: starting (cache_hits=%d, cache_misses=%d, cache_size=%d/%d)",
+        cache_info.hits,
+        cache_info.misses,
+        cache_info.currsize,
+        cache_info.maxsize,
+    )
+    
+    result = _assess_response_quality_cached(requirement_json, response_text)
+    
+    new_cache_info = _assess_response_quality_cached.cache_info()
+    if new_cache_info.hits > cache_info.hits:
+        logger.info("Quality assessment: cache HIT - returned cached result")
+    else:
+        logger.info("Quality assessment: cache MISS - processed new request")
+    
+    return result
 
