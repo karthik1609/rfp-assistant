@@ -11,20 +11,10 @@ from typing import Dict, Any, List
 
 from backend.llm.client import chat_completion
 from backend.models import RequirementItem
+from backend.agents.prompts import QUALITY_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 QUALITY_MODEL = "gpt-5-chat"
-
-QUALITY_SYSTEM_PROMPT = """You are an expert at assessing RFP response quality.
-
-Your task is to evaluate how well a response addresses a requirement and provide:
-1. Quality score (0-100)
-2. Completeness assessment
-3. Relevance check
-4. Specific issues or gaps
-5. Suggestions for improvement
-
-Be thorough but fair in your assessment."""
 
 
 def assess_response_quality(

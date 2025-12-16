@@ -8,20 +8,11 @@ from typing import Any, Dict
 
 from backend.llm.client import chat_completion
 from backend.models import ExtractionResult
+from backend.agents.prompts import EXTRACTION_SYSTEM_PROMPT
 
 
 logger = logging.getLogger(__name__)
 EXTRACTION_MODEL = "gpt-5-chat"
-
-
-EXTRACTION_SYSTEM_PROMPT = """Extract RFP info. Output JSON:
-- language: ISO code (e.g., 'en')
-- translated_text: English text
-- cpv_codes: array (only if explicitly written)
-- other_codes: array (only if written, format "TYPE: VALUE")
-- key_requirements_summary: 10-15 bullet points
-
-Rules: Extract only what's written. No inventing codes/dates. No metadata."""
 
 @functools.lru_cache(maxsize=512)
 def _run_extraction_agent_cached(document_text: str) -> ExtractionResult:

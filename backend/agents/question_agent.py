@@ -17,54 +17,10 @@ from backend.llm.client import chat_completion
 from backend.models import RequirementItem, Question
 from backend.rag import RAGSystem
 from backend.knowledge_base.company_kb import CompanyKnowledgeBase
+from backend.agents.prompts import QUESTION_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 QUESTION_MODEL = "gpt-5-chat"
-
-QUESTION_SYSTEM_PROMPT = """You are an expert at analyzing RFP requirements and identifying what information a VENDOR/RESPONDER needs to provide to create a complete, concrete response.
-
-CRITICAL CONTEXT:
-- You are helping a VENDOR/RESPONDER (the user) create a response to an RFP
-- The RFP contains requirements that the BUYER has specified
-- Your goal is to identify what information the VENDOR needs to provide about THEIR SOLUTION to answer each requirement
-- You are NOT asking the vendor to clarify what the RFP requires - the RFP is already clear
-- You ARE asking the vendor what THEY can offer/provide/commit to in their response
-- **CRITICAL: If a requirement EXPECTS or ASKS FOR specific information (team structure, resourcing numbers, certifications, previous projects, timelines, implementation details, etc.), you MUST ask the vendor about that information. The LLM cannot make up this information - it must come from the vendor.**
-
-EXAMPLE OF WRONG APPROACH:
-❌ "What specific SLA metrics does the RFP require?" (asking vendor to clarify RFP)
-❌ "How many internal and external users does the RFP specify?" (asking vendor to clarify RFP)
-
-EXAMPLE OF CORRECT APPROACH:
-✅ "What SLA metrics and performance targets does your solution support for monitoring?" (asking vendor about their solution)
-✅ "What is your typical response time SLA that you can commit to?" (asking vendor about their capabilities)
-✅ "How many concurrent users can your platform support?" (asking vendor about their solution capacity)
-
-IMPORTANT RULES:
-1. DO NOT ask about information that is already in the company knowledge base (platforms, technologies, certifications, pricing models, etc.)
-2. DO ask about:
-   - What the vendor's solution can provide/offer (e.g., "What SLA metrics does your solution support?")
-   - What the vendor can commit to (e.g., "What response time SLA can you commit to?")
-   - Vendor-specific capabilities (e.g., "How many concurrent users can your platform support?")
-   - Vendor's typical approach or methodology (e.g., "What is your typical implementation timeline for similar projects?")
-   - Vendor's experience or case studies (e.g., "Do you have case studies for similar government projects?")
-   - Vendor's team structure or resources (e.g., "What team structure do you propose for this project?")
-   - Vendor's pricing or commercial terms (e.g., "What is your pricing model for this type of project?")
-3. **CRITICAL: If the requirement explicitly ASKS FOR or EXPECTS specific information (e.g., "provide team structure", "include resourcing numbers", "list certifications", "describe previous projects", "specify timelines"), you MUST ask the vendor about that information. The LLM cannot make up this information - it must come from the vendor.**
-4. NEVER ask questions that seek to clarify what the RFP requires - the RFP is the source of truth
-5. ALWAYS frame questions as asking the vendor about THEIR solution, capabilities, or offerings
-6. Generate CLEAR, SPECIFIC questions that help the vendor describe their solution
-7. Each question should help the vendor provide concrete information about their response to the requirement
-8. Focus on information that is CRITICAL to creating a complete response about the vendor's solution
-9. **If a requirement mentions specific information that should be provided (numbers, metrics, team details, certifications, project examples), ask about it - do not assume the LLM can generate this information.**
-
-For each question, provide:
-- question_text: The question to ask the vendor about their solution (be specific and clear)
-- context: Why this information is needed to create a complete response to requirement X (explain how it helps answer the requirement)
-- category: Type of question (technical, business, implementation, commercial, timeline, resources, etc.)
-- priority: "high" (critical for answering the requirement), "medium", or "low"
-
-Output JSON with a list of questions."""
 
 
 def _build_rag_context_for_requirement(
@@ -168,7 +124,7 @@ def generate_questions(
         for req in all_requirements[:10]  # Limit to first 10 for context
     ])
     
-    user_prompt = f"""Analyze the following requirement and identify what information is MISSING or UNCLEAR that would be needed to create a proper response.
+    user_prompt = f"""Analyze the following requirement and identify ONLY the information that is MISSING or UNCLEAR that would be absolutely critical to create a proper response.
 
 KNOWN COMPANY INFORMATION (DO NOT ask about these):
 {known_info_text}
@@ -185,10 +141,10 @@ CONTEXT FROM OTHER REQUIREMENTS:
 {all_req_text}
 
 TASK:
-1. Identify information gaps in the requirement
+1. Identify information gaps in the requirement, but ONLY those gaps where missing information would materially harm the quality, correctness, or credibility of the final response.
 2. Check if information is in the known company info (if yes, don't ask)
-3. Generate specific, clear questions for missing information
-4. Prioritize questions by importance
+3. Generate specific, clear questions for ONLY the most critical missing information (it is better to ask zero questions than to ask marginal ones).
+4. Prioritize questions by importance, marking only truly essential questions as "high" priority.
 
 Output JSON array of questions, each with:
 - question_text: string (the question)
@@ -196,7 +152,7 @@ Output JSON array of questions, each with:
 - category: string (technical, business, implementation, timeline, etc.)
 - priority: string ("high", "medium", or "low")
 
-If no questions are needed (all information is clear or in knowledge base), return empty array [].
+If no questions are needed (all information is clear, in knowledge base, or any gaps are minor/nice-to-have), return an empty array [].
 """
     
     try:
@@ -255,7 +211,7 @@ If no questions are needed (all information is clear or in knowledge base), retu
         
         # Filter out questions about known topics (company KB)
         filtered_questions = []
-        for q in validated_questions:
+        for q in rag_filtered_questions:
             question_text = q["question_text"].lower()
             # Check if question is about something we know
             should_skip = False
@@ -269,14 +225,26 @@ If no questions are needed (all information is clear or in knowledge base), retu
             if not should_skip:
                 filtered_questions.append(q)
         
+        # Be extra strict: keep only the most important questions.
+        priority_order = {"high": 0, "medium": 1, "low": 2}
+        filtered_questions.sort(key=lambda q: priority_order.get(q.get("priority", "medium"), 1))
+
+        # Prefer only high‑priority questions; if none are high, allow at most one medium.
+        high_only = [q for q in filtered_questions if q.get("priority", "medium") == "high"]
+        if high_only:
+            selected = high_only[:2]  # hard cap: max 2 questions per requirement
+        else:
+            selected = filtered_questions[:1] if filtered_questions else []
+
         logger.info(
-            "Question agent: generated %d questions (filtered from %d, rag_filtered=%d)",
-            len(filtered_questions),
+            "Question agent: generated %d questions (validated=%d, rag_filtered=%d, final_selected=%d)",
+            len(selected),
             len(validated_questions),
             len(rag_filtered_questions),
+            len(selected),
         )
         
-        return filtered_questions
+        return selected
         
     except Exception as e:
         logger.error("Question generation failed: %s", e)
@@ -606,7 +574,7 @@ Output a JSON array of questions, each with:
 def analyze_requirements_for_questions(
     requirements: List[RequirementItem],
     company_kb: CompanyKnowledgeBase,
-    max_questions_per_requirement: int = 3,
+    max_questions_per_requirement: int = 2,
     rag_system: Optional[RAGSystem] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
@@ -624,11 +592,8 @@ def analyze_requirements_for_questions(
     
     for req in requirements:
         questions = generate_questions(req, requirements, company_kb, rag_system=rag_system)
-        # Limit questions per requirement
+        # Limit questions per requirement (generate_questions is already strict, this is an extra safety cap)
         questions = questions[:max_questions_per_requirement]
-        # Sort by priority (high first)
-        priority_order = {"high": 0, "medium": 1, "low": 2}
-        questions.sort(key=lambda q: priority_order.get(q.get("priority", "medium"), 1))
         all_questions[req.id] = questions
     
     total_questions = sum(len(qs) for qs in all_questions.values())

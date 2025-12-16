@@ -8,36 +8,11 @@ from typing import Any, Dict
 
 from backend.llm.client import chat_completion
 from backend.models import RequirementItem, RequirementsResult
+from backend.agents.prompts import REQUIREMENTS_SYSTEM_PROMPT
 
 
 logger = logging.getLogger(__name__)
 REQUIREMENTS_MODEL = "gpt-5-chat"
-
-
-REQUIREMENTS_SYSTEM_PROMPT = """Extract and categorize RFP requirements.
-
-1. solution_requirements: What buyer wants (functional, technical, security, etc.)
-2. response_structure_requirements: How to respond (format, structure, etc.)
-
-CRITICAL EXTRACTION RULES:
-- Extract COMPLETE requirement statements, not individual sentences
-- Group related requirements that appear together in the same paragraph or bullet point
-- Only split into separate requirements when they are clearly distinct, standalone requirements
-- Look for natural boundaries: paragraphs, numbered/bulleted lists, section headers
-- A single requirement may span multiple sentences if they describe one cohesive requirement
-- Do NOT split a requirement just because it contains multiple sentences or clauses
-- Extract ALL requirements - do NOT skip any, but group related ones together
-
-EXAMPLES:
-- GOOD: One requirement = "Provide an enterprise-grade BPM platform, licensed for MTI's anticipated user base (internal and external users). Support both workbasket and worklist paradigms for task distribution and assignment."
-- BAD: Two separate requirements for each sentence above
-
-- GOOD: One requirement = "The system must support integration with existing systems such as document management, email, identity management, and core line-of-business systems."
-- BAD: Four separate requirements (one per system type)
-
-For each requirement: id, type (mandatory/optional/unspecified), source_text (FULL original text verbatim), normalized_text, category.
-
-Output JSON: solution_requirements, response_structure_requirements, notes."""
 
 @functools.lru_cache(maxsize=512)
 def _run_requirements_agent_cached(essential_text: str, structured_info_json: str) -> RequirementsResult:

@@ -8,40 +8,12 @@ from typing import Any, Dict
 
 from backend.llm.client import chat_completion
 from backend.models import ScopeResult
+from backend.agents.prompts import SCOPE_SYSTEM_PROMPT, COMPARISON_SYSTEM_PROMPT
 
 
 logger = logging.getLogger(__name__)
 SCOPE_MODEL = "gpt-5-chat"
 COMPARISON_MODEL = "gpt-5-chat"
-
-
-SCOPE_SYSTEM_PROMPT = """Extract necessary RFP text (80-95% of original).
-
-Keep: requirements, scope, objectives, evaluation criteria, structure requirements.
-Remove: emails, addresses, phone numbers, contact names, signatures, metadata, headers/footers, legal boilerplate, placeholder dates like [DD Month YYYY].
-
-IMPORTANT EXCEPTION:
-- DO NOT remove any clauses describing the rights or remedies of the Ministry/Buyer/Authority (e.g. "Rights of the Ministry", "Rights of the Buyer", termination rights, penalties, audit rights, inspection rights). These are part of the commercial terms and MUST be kept in the necessary_text.
-
-CRITICAL: The removed_text field MUST contain the ACTUAL removed text content (not just a description). List each removed section verbatim, separated by '---REMOVED SECTION---'.
-
-Output JSON: necessary_text (complete text with removed parts excluded), removed_text (actual removed content, verbatim), rationale (brief explanation)."""
-
-COMPARISON_SYSTEM_PROMPT = """You are a quality assurance agent comparing the original RFP text with the extracted/cleaned text.
-
-Your task is to:
-1. Verify that ONLY administrative items were removed (emails, addresses, phone numbers, contact names, signatures, metadata, headers/footers, legal boilerplate)
-2. Check that NO substantive content is missing (requirements, scope, objectives, evaluation criteria, technical specifications, proposal structure requirements)
-3. Identify any substantive content that appears in the original but is missing from the extracted text
-4. Verify that the removed_text contains only administrative items, not requirements or other substantive content
-
-Be thorough and specific. If you find missing substantive content, list it clearly. If everything looks good, explain what you verified.
-
-Output JSON with:
-- agreement (bool): true if only admin items removed and no substantive content missing, false otherwise
-- missing_items (list of strings): List of specific substantive content items that are in the original but missing from extracted text. Each item should be a clear description (e.g., "Requirement for 99.9% uptime SLA", "Evaluation criterion: technical approach (40 points)", "Section 3.2: Data retention requirements"). Empty list [] if nothing missing.
-- removed_items_analysis (list of strings, optional): List of substantive items found in removed_text that should NOT have been removed. Only include items that are clearly substantive (requirements, scope, objectives, etc.). Empty list [] if removed_text only contains admin items.
-- notes (string): Detailed explanation of your findings. Describe what you checked, what you found, and any concerns. Be specific - mention what types of content you verified (requirements, scope, objectives, etc.) and whether they are all present in the extracted text."""
 
 @functools.lru_cache(maxsize=128)
 def _run_scope_agent_cached(translated_text: str) -> ScopeResult:
@@ -165,7 +137,6 @@ IMPORTANT: removed_text must contain the ACTUAL removed text verbatim, not just 
             elif not isinstance(removed_text, str):
                 removed_text = str(removed_text) if removed_text else ""
             
-            # Log removed text for debugging
             if removed_text and len(removed_text.strip()) > 0:
                 logger.info("Scope agent: removed_text length=%d chars, preview: %s", len(removed_text), removed_text[:200])
             else:
@@ -193,10 +164,6 @@ IMPORTANT: removed_text must contain the ACTUAL removed text verbatim, not just 
         comparison_notes = f"Using full original text ({necessary_ratio*100:.1f}% coverage)."
     else:
         try:
-            # Use larger samples for better comparison - include beginning, middle, and end
-            # For original text: first 5000, middle 2000, last 3000
-            # For extracted text: first 5000, middle 2000, last 3000
-            # For removed text: up to 2000 chars
             orig_parts = []
             if len(translated_text) > 10000:
                 orig_parts.append(f"[BEGINNING - first 5000 chars]:\n{translated_text[:5000]}")
@@ -244,7 +211,6 @@ Be thorough and specific. If you find problems, list them clearly. If everything
             comp_user_tokens = len(comparison_prompt) // 4
             comp_total = comp_system_tokens + comp_user_tokens + 100
             logger.info("Comparison prompt tokens: system=%d, user=%d, total=%d", comp_system_tokens, comp_user_tokens, comp_total)
-            # Increased max tokens to allow for detailed analysis with missing items and notes
             max_output_tokens = max(2000, min(4000, 32769 - comp_total - 1000))
             comparison_content = chat_completion(
                 model=COMPARISON_MODEL,
@@ -264,7 +230,6 @@ Be thorough and specific. If you find problems, list them clearly. If everything
                 removed_items_analysis = comparison_data.get("removed_items_analysis", [])
                 notes = comparison_data.get("notes", "")
                 
-                # Build detailed comparison notes from actual findings
                 note_parts = []
                 
                 if missing_items:
@@ -275,13 +240,11 @@ Be thorough and specific. If you find problems, list them clearly. If everything
                         note_parts.append(f"  ... and {len(missing_items) - 10} more items")
                 
                 if removed_items_analysis:
-                    # Handle list of strings (substantive items that were incorrectly removed)
                     substantive_removed = []
                     for item in removed_items_analysis:
                         if isinstance(item, str):
                             substantive_removed.append(item)
                         elif isinstance(item, dict):
-                            # Handle dict format if LLM uses it
                             item_text = item.get("item", item.get("content", item.get("text", str(item))))
                             if item_text:
                                 substantive_removed.append(str(item_text))
@@ -297,7 +260,6 @@ Be thorough and specific. If you find problems, list them clearly. If everything
                     note_parts.append(f"\n📋 ANALYSIS:\n{notes}")
                 
                 if not note_parts:
-                    # No issues found - but still include the LLM's analysis
                     if notes:
                         note_parts.append(f"✅ VALIDATION PASSED:\n{notes}")
                     else:
