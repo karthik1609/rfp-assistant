@@ -74,12 +74,6 @@ def run_response_agent(
         num_retrieval_chunks,
     )
 
-    # IMPORTANT:
-    # We deliberately do NOT call rag_system.search() here anymore.
-    # Any RAG‑derived evidence should already be present in the build_query
-    # text (e.g. enriched sections) or in the Q&A context that is passed in.
-    # This avoids doing a second round of embeddings + FAISS search.
-    retrieved_chunks: List[Dict[str, Any]] = []
     chunks_text = format_retrieved_chunks(retrieved_chunks)
     
     fusionaix_context = ""
@@ -94,7 +88,6 @@ def run_response_agent(
             logger.warning("Failed to format knowledge base context: %s", kb_exc)
             fusionaix_context = ""
 
-    # Use FULL requirements - do not truncate, as we need all details
     req_summary = build_query.solution_requirements_summary
     struct_summary = build_query.response_structure_requirements_summary
     

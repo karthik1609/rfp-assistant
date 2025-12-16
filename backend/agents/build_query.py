@@ -1,4 +1,6 @@
 from __future__ import annotations
+import functools
+import json
 import logging
 from typing import Dict, Any
 
@@ -12,11 +14,18 @@ from backend.models import (
 logger = logging.getLogger(__name__)
 
 
-def build_query_for_single_requirement(
-    extraction_result: ExtractionResult,
-    single_requirement: RequirementItem,
-    all_response_structure_requirements: list[RequirementItem],
+@functools.lru_cache(maxsize=256)
+def _build_query_for_single_requirement_cached(
+    extraction_json: str,
+    requirement_json: str,
+    response_structure_json: str,
 ) -> BuildQuery:
+    extraction_result = ExtractionResult(**json.loads(extraction_json))
+    single_requirement = RequirementItem(**json.loads(requirement_json))
+    all_response_structure_requirements = [
+        RequirementItem(**r) for r in json.loads(response_structure_json)
+    ]
+    
     logger.info("Building query for single requirement: %s", single_requirement.id)
 
     solution_summary = single_requirement.normalized_text
@@ -75,10 +84,50 @@ def build_query_for_single_requirement(
     )
 
 
-def build_query(
+def build_query_for_single_requirement(
     extraction_result: ExtractionResult,
-    requirements_result: RequirementsResult,
+    single_requirement: RequirementItem,
+    all_response_structure_requirements: list[RequirementItem],
 ) -> BuildQuery:
+    extraction_json = json.dumps(extraction_result.model_dump(), sort_keys=True)
+    requirement_json = json.dumps(single_requirement.model_dump(), sort_keys=True)
+    response_structure_json = json.dumps(
+        [r.model_dump() for r in all_response_structure_requirements],
+        sort_keys=True
+    )
+    
+    cache_info = _build_query_for_single_requirement_cached.cache_info()
+    logger.info(
+        "Build query (single): starting (cache_hits=%d, cache_misses=%d, cache_size=%d/%d)",
+        cache_info.hits,
+        cache_info.misses,
+        cache_info.currsize,
+        cache_info.maxsize,
+    )
+    
+    result = _build_query_for_single_requirement_cached(
+        extraction_json,
+        requirement_json,
+        response_structure_json,
+    )
+    
+    new_cache_info = _build_query_for_single_requirement_cached.cache_info()
+    if new_cache_info.hits > cache_info.hits:
+        logger.info("Build query (single): cache HIT - returned cached result")
+    else:
+        logger.info("Build query (single): cache MISS - processed new request")
+    
+    return result
+
+
+@functools.lru_cache(maxsize=128)
+def _build_query_cached(
+    extraction_json: str,
+    requirements_json: str,
+) -> BuildQuery:
+    extraction_result = ExtractionResult(**json.loads(extraction_json))
+    requirements_result = RequirementsResult(**json.loads(requirements_json))
+    
     logger.info("Building query from extraction and requirements data")
 
     solution_parts = []
@@ -139,4 +188,31 @@ def build_query(
         extraction_data=extraction_data,
         confirmed=False,
     )
+
+
+def build_query(
+    extraction_result: ExtractionResult,
+    requirements_result: RequirementsResult,
+) -> BuildQuery:
+    extraction_json = json.dumps(extraction_result.model_dump(), sort_keys=True)
+    requirements_json = json.dumps(requirements_result.model_dump(), sort_keys=True)
+    
+    cache_info = _build_query_cached.cache_info()
+    logger.info(
+        "Build query: starting (cache_hits=%d, cache_misses=%d, cache_size=%d/%d)",
+        cache_info.hits,
+        cache_info.misses,
+        cache_info.currsize,
+        cache_info.maxsize,
+    )
+    
+    result = _build_query_cached(extraction_json, requirements_json)
+    
+    new_cache_info = _build_query_cached.cache_info()
+    if new_cache_info.hits > cache_info.hits:
+        logger.info("Build query: cache HIT - returned cached result")
+    else:
+        logger.info("Build query: cache MISS - processed new request")
+    
+    return result
 
