@@ -7,43 +7,64 @@ from backend.llm.client import chat_completion
 from backend.models import BuildQuery, ResponseResult
 from backend.rag import RAGSystem
 from backend.knowledge_base import FusionAIxKnowledgeBase
+from backend.agents.prompts import RESPONSE_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
 RESPONSE_MODEL = "gpt-5-chat"
 
-RESPONSE_SYSTEM_PROMPT = """You are an RFP response writer for fusionAIx. Write comprehensive, detailed responses to specific requirements.
 
-CRITICAL RULES:
-- Address ONLY the specific requirement provided - no executive summaries, no solution overviews, no generic introductions
-- Show understanding of the requirement first, then provide a comprehensive, detailed response
-- Be specific and concrete - use fusionAIx capabilities, case studies, and accelerators where relevant
-- **CRITICAL: If USER-PROVIDED INFORMATION (Q&A) is provided, you MUST use the FULL, COMPLETE answers - do NOT summarize or condense them. If the user provided detailed project information, include those full details. If they provided certifications, include the full list. Match the depth and detail level of the Q&A answers.**
-- **NEVER make up information (numbers, metrics, team sizes, etc.) - if the requirement asks for specific information and it's not in the Q&A or knowledge base, you should note that this information needs to be provided.**
-- Write 800-1500 words (5000-10000 characters) - be comprehensive and detailed, matching the depth of the questions asked
-- Use RAG examples for CONTENT only (facts, capabilities), NOT for structure
-- NO sections like "Executive Summary", "Proposed Solution Overview", "Introduction" - just answer the requirement directly
-- Document formatting handled automatically - provide clean text content only
-- When Q&A context is provided, integrate the FULL information naturally throughout your response - don't just list it, weave it into a cohesive answer with all the details"""
-
-
-def format_retrieved_chunks(chunks: List[Dict[str, Any]]) -> str:
+def format_retrieved_chunks(
+    chunks: List[Dict[str, Any]],
+    max_chunks: int = 4,
+    max_total_chars: int = 3000,
+) -> str:
+    """
+    Format RAG chunks for inclusion in the prompt while:
+    - de‑duplicating highly similar chunks
+    - limiting the total amount of evidence text
+    """
     if not chunks:
         return ""
 
-    formatted = ["RAG Examples (content only, ignore layout):"]
-    for i, chunk in enumerate(chunks, 1):
-        chunk_text = chunk.get('chunk_text', '')
+    formatted: List[str] = ["RAG Examples (content only, ignore layout):"]
+    seen_normalized: set[str] = set()
+    total_chars = 0
+    example_idx = 1
+
+    for chunk in chunks:
+        if example_idx > max_chunks or total_chars >= max_total_chars:
+            break
+
+        chunk_text = chunk.get("chunk_text", "") or ""
+        norm = " ".join(chunk_text.split()).lower()
+        if not norm or norm in seen_normalized:
+            continue
+        seen_normalized.add(norm)
+
         if len(chunk_text) > 800:
             chunk_text = chunk_text[:800] + "..."
-        
-        formatted.append(f"[Ex{i}] {chunk_text}")
+
+        if total_chars + len(chunk_text) > max_total_chars:
+            # Trim last chunk to fit within budget
+            remaining = max_total_chars - total_chars
+            if remaining <= 0:
+                break
+            chunk_text = chunk_text[:remaining] + "..."
+
+        formatted.append(f"[Ex{example_idx}] {chunk_text}")
+        total_chars += len(chunk_text)
+        example_idx += 1
 
     return "\n".join(formatted)
 
 
 def run_response_agent(
     build_query: BuildQuery,
+    # NOTE: rag_system is kept for backwards‑compatibility with existing callers,
+    # but this agent no longer performs its own RAG lookup. RAG is expected to
+    # run earlier in the pipeline (e.g. during question generation / build‑query
+    # enrichment) so we don't pay the embedding + FAISS search cost twice.
     rag_system: Optional[RAGSystem] = None,
     num_retrieval_chunks: int = 5,
     temperature: float = 0.0,
@@ -61,19 +82,12 @@ def run_response_agent(
         num_retrieval_chunks,
     )
 
+    # IMPORTANT:
+    # We deliberately do NOT call rag_system.search() here anymore.
+    # Any RAG‑derived evidence should already be present in the build_query
+    # text (e.g. enriched sections) or in the Q&A context that is passed in.
+    # This avoids doing a second round of embeddings + FAISS search.
     retrieved_chunks: List[Dict[str, Any]] = []
-    if rag_system is not None:
-        try:
-            req_summary = build_query.solution_requirements_summary[:400]
-            struct_summary = build_query.response_structure_requirements_summary[:400]
-            search_query = f"{req_summary}\n{struct_summary}"
-            actual_chunks = min(num_retrieval_chunks, 4)
-            retrieved_chunks = rag_system.search(search_query, k=actual_chunks)
-            logger.info("Retrieved %d chunks from RAG (limited to %d)", len(retrieved_chunks), actual_chunks)
-        except Exception as e:
-            logger.warning("Failed to retrieve chunks from RAG: %s", str(e))
-            retrieved_chunks = []
-
     chunks_text = format_retrieved_chunks(retrieved_chunks)
     
     fusionaix_context = ""

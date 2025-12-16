@@ -12,37 +12,53 @@ from backend.models import (
 )
 from backend.rag import RAGSystem
 from backend.knowledge_base import FusionAIxKnowledgeBase
+from backend.agents.prompts import STRUCTURED_RESPONSE_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 STRUCTURED_RESPONSE_MODEL = "gpt-5-chat"
 
-STRUCTURED_RESPONSE_SYSTEM_PROMPT = """You are an RFP response writer for fusionAIx. Generate a complete RFP response document following the EXACT structure specified in the RFP.
 
-CRITICAL RULES:
-- Follow the RFP's required structure EXACTLY - include all specified sections in the required order
-- Each section should address relevant solution requirements from the RFP
-- Be specific and concrete - use fusionAIx capabilities, case studies, and accelerators where relevant
-- **CRITICAL: If USER-PROVIDED INFORMATION (Q&A) is provided, you MUST use the FULL, COMPLETE answers - do NOT summarize or condense them. If the user provided detailed project information, include those full details. If they provided certifications, include the full list. Match the depth and detail level of the Q&A answers.**
-- **NEVER make up information (numbers, metrics, team sizes, etc.) - if the requirement asks for specific information and it's not in the Q&A or knowledge base, you should note that this information needs to be provided.**
-- Maintain professional tone and clear organization
-- Ensure all mandatory sections are included
-- Map solution requirements to appropriate sections
-- Provide comprehensive responses that fully address the RFP requirements
-- When Q&A context is provided, integrate the FULL information naturally throughout relevant sections - don't just list it, weave it into a cohesive answer with all the details"""
-
-
-def format_retrieved_chunks(chunks: List[Dict[str, Any]]) -> str:
-    """Format RAG chunks for inclusion in prompt."""
+def format_retrieved_chunks(
+    chunks: List[Dict[str, Any]],
+    max_chunks: int = 4,
+    max_total_chars: int = 3000,
+) -> str:
+    """
+    Format RAG chunks for inclusion in the structured-response prompt while:
+    - de-duplicating similar evidence chunks
+    - enforcing a total character budget to keep token usage reasonable
+    """
     if not chunks:
         return ""
-    
-    formatted = ["RAG Examples (for content reference only):"]
-    for i, chunk in enumerate(chunks, 1):
-        chunk_text = chunk.get('chunk_text', '')
+
+    formatted: List[str] = ["RAG Examples (for content reference only):"]
+    seen_normalized: set[str] = set()
+    total_chars = 0
+    example_idx = 1
+
+    for chunk in chunks:
+        if example_idx > max_chunks or total_chars >= max_total_chars:
+            break
+
+        chunk_text = chunk.get("chunk_text", "") or ""
+        norm = " ".join(chunk_text.split()).lower()
+        if not norm or norm in seen_normalized:
+            continue
+        seen_normalized.add(norm)
+
         if len(chunk_text) > 800:
             chunk_text = chunk_text[:800] + "..."
-        formatted.append(f"[Ex{i}] {chunk_text}")
-    
+
+        if total_chars + len(chunk_text) > max_total_chars:
+            remaining = max_total_chars - total_chars
+            if remaining <= 0:
+                break
+            chunk_text = chunk_text[:remaining] + "..."
+
+        formatted.append(f"[Ex{example_idx}] {chunk_text}")
+        total_chars += len(chunk_text)
+        example_idx += 1
+
     return "\n".join(formatted)
 
 
@@ -57,22 +73,6 @@ def run_structured_response_agent(
     max_tokens: Optional[int] = None,
     qa_context: Optional[str] = None,
 ) -> ResponseResult:
-    """
-    Generate RFP response following the explicit structure detected in the RFP.
-    
-    Args:
-        extraction_result: Extraction result with RFP metadata
-        requirements_result: Requirements result with solution and structure requirements
-        structure_detection: Structure detection result with detected sections
-        rag_system: Optional RAG system for prior RFP examples
-        num_retrieval_chunks: Number of RAG chunks to retrieve
-        knowledge_base: Optional fusionAIx knowledge base
-        temperature: LLM temperature
-        max_tokens: Maximum tokens for response
-        
-    Returns:
-        ResponseResult with complete structured response
-    """
     if not structure_detection.has_explicit_structure:
         raise ValueError("Cannot generate structured response without explicit structure")
     
@@ -82,11 +82,9 @@ def run_structured_response_agent(
         len(requirements_result.solution_requirements),
     )
     
-    # Retrieve RAG chunks if available
     retrieved_chunks: List[Dict[str, Any]] = []
     if rag_system is not None:
         try:
-            # Use structure description and solution requirements for search
             search_query = f"{structure_detection.structure_description}\n{requirements_result.solution_requirements[0].normalized_text if requirements_result.solution_requirements else ''}"
             retrieved_chunks = rag_system.search(search_query, k=min(num_retrieval_chunks, 5))
             logger.info("Retrieved %d chunks from RAG", len(retrieved_chunks))
@@ -96,11 +94,9 @@ def run_structured_response_agent(
     
     chunks_text = format_retrieved_chunks(retrieved_chunks)
     
-    # Get fusionAIx knowledge base context
     fusionaix_context = ""
     if knowledge_base is not None:
         try:
-            # Use first few solution requirements for context
             req_text = " ".join([
                 req.normalized_text[:100] 
                 for req in requirements_result.solution_requirements[:3]
@@ -113,13 +109,11 @@ def run_structured_response_agent(
             logger.warning("Failed to format knowledge base context: %s", kb_exc)
             fusionaix_context = ""
     
-    # Build solution requirements summary
     solution_reqs_text = "\n".join([
         f"- [{req.type.upper()}] {req.normalized_text}"
         for req in requirements_result.solution_requirements
     ])
     
-    # Build user prompt
     user_prompt_parts = [
         "RFP RESPONSE STRUCTURE REQUIREMENTS:",
         structure_detection.structure_description,
@@ -187,13 +181,11 @@ def run_structured_response_agent(
     
     user_prompt = "\n".join(user_prompt_parts)
     
-    # Calculate tokens
     system_tokens = len(STRUCTURED_RESPONSE_SYSTEM_PROMPT) // 4
     user_tokens = len(user_prompt) // 4
     total_input_tokens = system_tokens + user_tokens + 100
     
     if max_tokens is None:
-        # Allow more tokens for structured responses (they're longer, especially with Q&A context)
         max_tokens = min(8000, 32769 - total_input_tokens - 1000)
     
     logger.info(
