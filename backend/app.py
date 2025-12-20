@@ -42,7 +42,6 @@ from backend.models import (
 )
 from backend.knowledge_base import FusionAIxKnowledgeBase
 from backend.knowledge_base.company_kb import CompanyKnowledgeBase
-from backend.memory.mem0_client import store_preprocess_result
 
 
 def _setup_rag_and_kb(use_rag: bool) -> tuple[Optional[RAGSystem], FusionAIxKnowledgeBase]:
@@ -369,18 +368,6 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
         preprocess_res.comparison_agreement,
     )
     logger.info("REQUEST %s: OCR + preprocess completed in %.2fs", request_id, elapsed)
-    
-    # Store preprocess result in Mem0 using SHA-256 hash of OCR text as user_id
-    try:
-        preprocess_dict = preprocess_res.to_dict()
-        store_success = store_preprocess_result(text, preprocess_dict)
-        if store_success:
-            logger.info("REQUEST %s: Preprocess result stored in Mem0", request_id)
-        else:
-            logger.debug("REQUEST %s: Mem0 storage skipped (client not available or error)", request_id)
-    except Exception as e:
-        # Don't fail the request if Mem0 storage fails
-        logger.warning("REQUEST %s: Failed to store preprocess result in Mem0: %s", request_id, str(e))
     
     response: Dict[str, Any] = {
         "preprocess": preprocess_res.to_dict(),
