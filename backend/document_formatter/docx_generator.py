@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import datetime
@@ -22,12 +23,116 @@ except ImportError:
     logger.warning("python-docx not available. DOCX export will not work.")
 
 
+def clear_paragraph(paragraph):
+    """Clear all runs from a paragraph by removing XML children."""
+    p = paragraph._p
+    for child in list(p):
+        p.remove(child)
+
+
+def setup_styles(doc):
+    """Configure document styles for clean, professional output."""
+    # Normal / Body text style
+    normal = doc.styles["Normal"]
+    normal.font.name = "Calibri"
+    normal.font.size = Pt(11)
+    pf = normal.paragraph_format
+    pf.space_before = Pt(0)
+    pf.space_after = Pt(6)
+    pf.line_spacing = 1.15
+    
+    # Heading styles
+    for level in (1, 2, 3, 4):
+        try:
+            h = doc.styles[f"Heading {level}"]
+            h.font.name = "Calibri"
+            h.paragraph_format.space_before = Pt(12 if level <= 2 else 8)
+            h.paragraph_format.space_after = Pt(6)
+            h.paragraph_format.keep_with_next = True  # Avoids headings dangling at bottom
+        except KeyError:
+            logger.warning(f"Heading {level} style not found, skipping")
+
+
+def setup_page_formatting(doc):
+    """Configure page margins and add footer page numbers."""
+    section = doc.sections[0]
+    section.top_margin = Inches(1)
+    section.bottom_margin = Inches(1)
+    section.left_margin = Inches(1)
+    section.right_margin = Inches(1)
+    
+    # Add page number to footer
+    footer = section.footer
+    p = footer.paragraphs[0]
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run()
+    fld = OxmlElement('w:fldSimple')
+    fld.set(qn('w:instr'), 'PAGE')
+    run._r.append(fld)
+
+
+def add_word_toc(paragraph):
+    """Insert a real Word TOC field that can be auto-updated."""
+    run = paragraph.add_run()
+    fld = OxmlElement('w:fldSimple')
+    fld.set(qn('w:instr'), 'TOC \\o "1-3" \\h \\z \\u')
+    run._r.append(fld)
+
+
+def set_table_header_cell(cell):
+    """Format a table header cell with bold text and styling."""
+    for p in cell.paragraphs:
+        for r in p.runs:
+            r.bold = True
+            try:
+                r.font.color.rgb = RGBColor(255, 255, 255)  # White text
+            except:
+                pass
+    try:
+        tc_pr = cell._element.get_or_add_tcPr()
+        shading = OxmlElement('w:shd')
+        shading.set(qn('w:fill'), '1a5490')
+        shading.set(qn('w:val'), 'clear')
+        tc_pr.append(shading)
+    except Exception as e:
+        logger.warning("Failed to set table header color: %s", e)
+
+
+def finalize_table(table):
+    """Apply final polish to a table: autofit, alignment, padding."""
+    try:
+        table.autofit = True
+    except:
+        pass
+    
+    # Set vertical alignment and cell padding
+    for row in table.rows:
+        for cell in row.cells:
+            try:
+                # Set vertical alignment to top for body cells
+                tc_pr = cell._element.get_or_add_tcPr()
+                v_align = OxmlElement('w:vAlign')
+                v_align.set(qn('w:val'), 'top')
+                tc_pr.append(v_align)
+                
+                # Set cell padding (top, right, bottom, left in twips - 1/20th of a point)
+                tc_mar = OxmlElement('w:tcMar')
+                for margin_name, margin_val in [('top', '80'), ('right', '80'), ('bottom', '80'), ('left', '80')]:
+                    margin = OxmlElement(f'w:{margin_name}')
+                    margin.set(qn('w:w'), margin_val)
+                    margin.set(qn('w:type'), 'dxa')
+                    tc_mar.append(margin)
+                tc_pr.append(tc_mar)
+            except Exception as e:
+                logger.debug("Failed to set table cell formatting: %s", e)
+
+
 def _add_formatted_text_to_paragraph(para, text: str):
     if not text:
         return
     
     if para.runs:
-        para.clear()
+        clear_paragraph(para)
     
     parts = []
     last_end = 0
@@ -51,6 +156,27 @@ def _add_formatted_text_to_paragraph(para, text: str):
                 run.bold = True
 
 
+def _start_table(doc, header_cells: List[str]):
+    """Create a new table with header row. Returns the table object."""
+    num_cols = len(header_cells)
+    current_table = doc.add_table(rows=1, cols=num_cols)
+    try:
+        current_table.style = 'Light Grid Accent 1'
+    except:
+        try:
+            current_table.style = 'Grid Table 1 Light'
+        except:
+            pass
+    
+    header_row_cells = current_table.rows[0].cells
+    for col_idx, cell_text in enumerate(header_cells):
+        cell = header_row_cells[col_idx]
+        cell.text = cell_text
+        set_table_header_cell(cell)
+    
+    return current_table
+
+
 def _parse_markdown_to_docx(doc, text: str):
     if not text:
         return
@@ -66,67 +192,69 @@ def _parse_markdown_to_docx(doc, text: str):
     lines = cleaned_lines
     i = 0
     in_table = False
-    table_rows = []
-    header_row = None
     current_table = None
+    in_code_block = False
+    code_block_lines = []
+    last_was_blank = False
+    list_item_buffer = []
     
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
         
-        if not stripped:
-            if in_table and table_rows and current_table:
-                in_table = False
-                table_rows = []
-                header_row = None
-                current_table = None
+        # Handle code blocks
+        if stripped.startswith('```'):
+            if in_code_block:
+                # End code block
+                if code_block_lines:
+                    para = doc.add_paragraph(style='Normal')
+                    para.style.font.name = 'Consolas'
+                    para.style.font.size = Pt(10)
+                    para.text = '\n'.join(code_block_lines)
+                code_block_lines = []
+                in_code_block = False
             else:
-                doc.add_paragraph()
+                # Start code block
+                in_code_block = True
             i += 1
             continue
         
+        if in_code_block:
+            code_block_lines.append(line)
+            i += 1
+            continue
+        
+        # Handle blank lines - only add one paragraph break max
+        if not stripped:
+            if in_table and current_table:
+                # Finalize table when we hit a blank line
+                finalize_table(current_table)
+                in_table = False
+                current_table = None
+            elif not last_was_blank:
+                # Only add paragraph if last wasn't blank (avoid gappy docs)
+                doc.add_paragraph()
+                last_was_blank = True
+            i += 1
+            continue
+        
+        last_was_blank = False
+        
+        # Handle tables
         if '|' in stripped and not stripped.startswith('#'):
+            # Check if this is a table header (next line is separator)
             if i + 1 < len(lines):
                 next_line = lines[i + 1].strip()
                 if re.match(r'^[\|\s:\-]+$', next_line):
+                    # Start new table
                     cells = [cell.strip() for cell in stripped.split('|') if cell.strip()]
                     if cells:
-                        header_row = cells
-                        num_cols = len(cells)
-                        current_table = doc.add_table(rows=1, cols=num_cols)
-                        try:
-                            current_table.style = 'Light Grid Accent 1'
-                        except:
-                            try:
-                                current_table.style = 'Grid Table 1 Light'
-                            except:
-                                pass
-                        
-                        header_cells = current_table.rows[0].cells
-                        for col_idx, cell_text in enumerate(cells):
-                            cell = header_cells[col_idx]
-                            cell.text = cell_text
-                            for paragraph in cell.paragraphs:
-                                for run in paragraph.runs:
-                                    run.bold = True
-                                    try:
-                                        run.font.color.rgb = RGBColor(255, 255, 255)  # White text
-                                    except:
-                                        pass
-                            try:
-                                tc_pr = cell._element.get_or_add_tcPr()
-                                shading = OxmlElement('w:shd')
-                                shading.set(qn('w:fill'), '1a5490')
-                                shading.set(qn('w:val'), 'clear')
-                                tc_pr.append(shading)
-                            except Exception as e:
-                                logger.warning("Failed to set table header color: %s", e)
-                        
+                        current_table = _start_table(doc, cells)
                         in_table = True
-                        table_rows = []
                         i += 2
                         continue
             
+            # Check if we're in an existing table
             if in_table and current_table:
                 cells = [cell.strip() for cell in stripped.split('|') if cell.strip()]
                 if cells:
@@ -137,64 +265,77 @@ def _parse_markdown_to_docx(doc, text: str):
                             cell.text = ""  # Clear first
                             para = cell.paragraphs[0]
                             _add_formatted_text_to_paragraph(para, cell_text)
-                    table_rows.append(cells)
                 i += 1
                 continue
-            elif i + 1 < len(lines):
-                next_line = lines[i + 1].strip()
-                if re.match(r'^[\|\s:\-]+$', next_line):
-                    cells = [cell.strip() for cell in stripped.split('|') if cell.strip()]
-                    if cells:
-                        header_row = cells
-                        num_cols = len(cells)
-                        current_table = doc.add_table(rows=1, cols=num_cols)
-                        try:
-                            current_table.style = 'Light Grid Accent 1'
-                        except:
-                            try:
-                                current_table.style = 'Grid Table 1 Light'
-                            except:
-                                pass
-                        
-                        header_cells = current_table.rows[0].cells
-                        for col_idx, cell_text in enumerate(cells):
-                            header_cells[col_idx].text = cell_text
-                            for paragraph in header_cells[col_idx].paragraphs:
-                                if paragraph.runs:
-                                    paragraph.runs[0].bold = True
-                                    paragraph.runs[0].font.color.rgb = RGBColor(255, 255, 255)  # White text
-                            try:
-                                tc_pr = header_cells[col_idx]._element.get_or_add_tcPr()
-                                shading = OxmlElement('w:shd')
-                                shading.set(qn('w:fill'), '1a5490')
-                                shading.set(qn('w:val'), 'clear')
-                                tc_pr.append(shading)
-                            except Exception as e:
-                                logger.warning("Failed to set table header color: %s", e)
-                        
-                        in_table = True
-                        table_rows = []
-                        i += 2
-                        continue
+        
+        # If we were in a table, finalize it before moving on
+        if in_table and current_table:
+            finalize_table(current_table)
+            in_table = False
+            current_table = None
+        
+        # Handle list items (including multi-line)
+        if stripped.startswith('- ') or stripped.startswith('* ') or re.match(r'^\d+\.\s', stripped):
+            # Start or continue list item
+            if stripped.startswith('- ') or stripped.startswith('* '):
+                content = stripped[2:].strip()
+                is_bullet = True
+            else:
+                content = re.sub(r'^\d+\.\s', '', stripped).strip()
+                is_bullet = False
             
-            _add_text_line(doc, stripped)
+            # Check if next line continues this list item (not a new list item and not blank)
+            if i + 1 < len(lines):
+                next_line = lines[i + 1]
+                next_stripped = next_line.strip()
+                # If next line is not a list marker and not blank, it's a continuation
+                if (next_stripped and 
+                    not next_stripped.startswith('- ') and 
+                    not next_stripped.startswith('* ') and 
+                    not re.match(r'^\d+\.\s', next_stripped)):
+                    list_item_buffer.append(content)
+                    list_item_buffer.append(next_stripped)
+                    i += 2
+                    # Continue collecting until we hit a new list item or blank line
+                    while i < len(lines):
+                        cont_line = lines[i]
+                        cont_stripped = cont_line.strip()
+                        if (not cont_stripped or 
+                            cont_stripped.startswith('- ') or 
+                            cont_stripped.startswith('* ') or 
+                            re.match(r'^\d+\.\s', cont_stripped)):
+                            break
+                        list_item_buffer.append(cont_stripped)
+                        i += 1
+                    # Now add the complete list item
+                    full_content = ' '.join(list_item_buffer)
+                    list_item_buffer = []
+                    para = doc.add_paragraph(style='List Bullet' if is_bullet else 'List Number')
+                    full_content = _capitalize_sentence(full_content)
+                    _add_formatted_text_to_paragraph(para, full_content)
+                    continue
+            
+            # Single-line list item
+            content = _capitalize_sentence(content)
+            para = doc.add_paragraph(style='List Bullet' if is_bullet else 'List Number')
+            _add_formatted_text_to_paragraph(para, content)
             i += 1
             continue
-        else:
-            if in_table and table_rows and current_table:
-                in_table = False
-                table_rows = []
-                header_row = None
-                current_table = None
-            
-            _add_text_line(doc, stripped)
-            i += 1
+        
+        # Regular text/headings
+        _add_text_line(doc, stripped)
+        i += 1
     
+    # Finalize any remaining table
     if in_table and current_table:
-        in_table = False
-        table_rows = []
-        header_row = None
-        current_table = None
+        finalize_table(current_table)
+    
+    # Handle any remaining code block
+    if in_code_block and code_block_lines:
+        para = doc.add_paragraph(style='Normal')
+        para.style.font.name = 'Consolas'
+        para.style.font.size = Pt(10)
+        para.text = '\n'.join(code_block_lines)
 
 
 def _clean_markdown_text(text: str) -> str:
@@ -221,9 +362,9 @@ def _capitalize_sentence(text: str) -> str:
 
 
 def _add_text_line(doc, line: str):
+    """Add a single line of text to the document, handling headings and regular text."""
     stripped = line.strip()
     if not stripped:
-        doc.add_paragraph()
         return
     
     if re.match(r'^---+$', stripped):
@@ -245,16 +386,6 @@ def _add_text_line(doc, line: str):
         header_text = _clean_markdown_text(stripped[2:])
         if header_text:
             doc.add_heading(header_text, 1)
-    elif stripped.startswith('- ') or stripped.startswith('* '):
-        para = doc.add_paragraph(style='List Bullet')
-        content = stripped[2:].strip()
-        content = _capitalize_sentence(content)
-        _add_formatted_text_to_paragraph(para, content)
-    elif re.match(r'^\d+\.\s', stripped):
-        para = doc.add_paragraph(style='List Number')
-        content = re.sub(r'^\d+\.\s', '', stripped).strip()
-        content = _capitalize_sentence(content)
-        _add_formatted_text_to_paragraph(para, content)
     else:
         content = _clean_markdown_text(stripped)
         if content:
@@ -278,10 +409,11 @@ def generate_rfp_docx(
     
     doc = Document()
     
-    style = doc.styles['Normal']
-    font = style.font
-    font.name = 'Calibri'
-    font.size = Pt(11)
+    # Setup styles first (cleanest output)
+    setup_styles(doc)
+    
+    # Setup page formatting (margins and footer)
+    setup_page_formatting(doc)
     
     title_para = doc.add_heading(rfp_title or f"RFP Response - {extraction_result.language.upper()}", 0)
     title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -299,51 +431,9 @@ def generate_rfp_docx(
     
     doc.add_heading("Table of Contents", 1)
     
-    is_structured = len(individual_responses) == 1 and individual_responses[0].get('requirement_id') == 'STRUCTURED'
-    
-    if is_structured:
-        response_text = individual_responses[0].get('response', '')
-        toc_para = doc.add_paragraph()
-        
-        sections = []
-        seen_sections = set()
-        for line in response_text.split('\n'):
-            stripped = line.strip()
-            if stripped.startswith('## ') and not stripped.startswith('###'):
-                section_name = _clean_markdown_text(stripped[3:])
-                if section_name and section_name not in seen_sections:
-                    sections.append(section_name)
-                    seen_sections.add(section_name)
-        
-        if not sections:
-            for line in response_text.split('\n'):
-                stripped = line.strip()
-                if stripped.startswith('### '):
-                    section_name = _clean_markdown_text(stripped[4:])
-                    if section_name and section_name not in seen_sections:
-                        sections.append(section_name)
-                        seen_sections.add(section_name)
-        
-        if sections:
-            for idx, section in enumerate(sections, 1):
-                toc_para.add_run(f"{idx}. {section}").bold = False
-                if idx < len(sections):
-                    toc_para.add_run("\n")
-        else:
-            key_phrase = individual_responses[0].get('key_phrase', 'Structured Response')
-            toc_para.add_run(f"1. {key_phrase}").bold = False
-    else:
-        toc_para = doc.add_paragraph()
-        for idx, resp in enumerate(individual_responses, 1):
-            req_id = resp.get('requirement_id', f'Requirement {idx}')
-            key_phrase = resp.get('key_phrase', '')
-            if key_phrase:
-                toc_para.add_run(f"{idx}. {req_id}: {key_phrase[:60]}...").bold = False
-            else:
-                req_text = resp.get('requirement_text', '')[:60]
-                toc_para.add_run(f"{idx}. {req_id}: {req_text}...").bold = False
-            if idx < len(individual_responses):
-                toc_para.add_run("\n")
+    # Use real Word TOC field instead of manual list
+    toc_para = doc.add_paragraph()
+    add_word_toc(toc_para)
     
     doc.add_page_break()
     
@@ -403,12 +493,10 @@ We support clients across diverse industries including Insurance, Banking & Fina
         logger.info("DOCX saved to: %s", output_path.absolute())
         return output_path.read_bytes()
     else:
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
-            doc.save(tmp.name)
-            tmp_path = Path(tmp.name)
-            bytes_data = tmp_path.read_bytes()
-            tmp_path.unlink()
-            logger.info("DOCX generated: %d bytes (in memory)", len(bytes_data))
-            return bytes_data
+        # Use BytesIO instead of temp file round-trip
+        buf = BytesIO()
+        doc.save(buf)
+        bytes_data = buf.getvalue()
+        logger.info("DOCX generated: %d bytes (in memory)", len(bytes_data))
+        return bytes_data
 

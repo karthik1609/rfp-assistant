@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import logging
 import os
 import time
@@ -18,6 +19,13 @@ from backend.pipeline.text_extraction import extract_text_from_file
 
 logger = logging.getLogger(__name__)
 
+try:
+    from backend.storage.azure_blob import AzureBlobStorage
+    AZURE_BLOB_AVAILABLE = True
+except ImportError:
+    AZURE_BLOB_AVAILABLE = False
+    logger.warning("Azure Blob Storage not available. Install azure-storage-blob to enable.")
+
 load_dotenv()
 
 EMBEDDING_MODEL = "text-embedding-3-large"
@@ -28,7 +36,14 @@ CHUNK_OVERLAP = 200
 
 class RAGSystem:
 
-    def __init__(self, docs_folder: str = "docs", index_path: Optional[str] = None, query_cache_path: Optional[str] = None):
+    def __init__(
+        self,
+        docs_folder: str = "docs",
+        index_path: Optional[str] = None,
+        query_cache_path: Optional[str] = None,
+        use_azure_blob: bool = True,
+        azure_container_name: str = "rag-indexes",
+    ):
         self.docs_folder = Path(docs_folder)
         self.index_path = Path(index_path) if index_path else None
         self.query_cache_path = Path(query_cache_path) if query_cache_path else None
@@ -36,20 +51,33 @@ class RAGSystem:
         self.metadata: List[Dict[str, Any]] = []
         self.client = None
         self._query_embedding_cache: Dict[str, np.ndarray] = {}
+        
+        self.azure_blob: Optional[AzureBlobStorage] = None
+        if use_azure_blob and AZURE_BLOB_AVAILABLE:
+            try:
+                self.azure_blob = AzureBlobStorage(container_name=azure_container_name)
+                if self.azure_blob.is_available():
+                    logger.info("Azure Blob Storage enabled for RAG index storage")
+                else:
+                    logger.warning("Azure Blob Storage not configured (connection string missing)")
+                    self.azure_blob = None
+            except Exception as e:
+                logger.warning("Failed to initialize Azure Blob Storage: %s", str(e))
+                self.azure_blob = None
+        
         self._load_query_cache()
         logger.info(
-            "RAGSystem initialized (docs_folder=%s, index_path=%s, query_cache_size=%d)",
+            "RAGSystem initialized (docs_folder=%s, index_path=%s, query_cache_size=%d, azure_blob=%s)",
             self.docs_folder,
             self.index_path,
             len(self._query_embedding_cache),
+            "enabled" if self.azure_blob and self.azure_blob.is_available() else "disabled",
         )
 
     def _get_query_hash(self, query: str) -> str:
-        """Generate a hash for the query text to use as cache key."""
         return hashlib.sha256(query.encode('utf-8')).hexdigest()
 
     def _load_query_cache(self) -> None:
-        """Load query embedding cache from disk if available."""
         if self.query_cache_path and self.query_cache_path.exists():
             try:
                 with open(self.query_cache_path, "rb") as f:
@@ -68,7 +96,6 @@ class RAGSystem:
                 self._query_embedding_cache = {}
 
     def _save_query_cache(self) -> None:
-        """Save query embedding cache to disk."""
         if self.query_cache_path:
             try:
                 self.query_cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,6 +258,32 @@ class RAGSystem:
             logger.error("Failed to load document %s: %s", file_path, str(e))
             raise
 
+    def _compute_docs_manifest(self) -> Dict[str, Dict[str, Any]]:
+        manifest: Dict[str, Dict[str, Any]] = {}
+
+        if not self.docs_folder.exists():
+            logger.warning("Docs folder does not exist when computing manifest: %s", self.docs_folder)
+            return manifest
+
+        for ext in [".pdf", ".docx", ".doc", ".txt"]:
+            for file_path in self.docs_folder.glob(f"**/*{ext}"):
+                try:
+                    stat = file_path.stat()
+                    rel_path = str(file_path.relative_to(self.docs_folder))
+                    manifest[rel_path] = {
+                        "size": stat.st_size,
+                        "mtime": stat.st_mtime,
+                    }
+                except Exception as e:
+                    logger.warning("Failed to stat file %s for manifest: %s", file_path, str(e))
+
+        logger.info(
+            "Computed docs manifest for %d file(s) in %s",
+            len(manifest),
+            self.docs_folder,
+        )
+        return manifest
+
     def build_index(self) -> None:
         if not self.docs_folder.exists():
             raise ValueError(f"Docs folder does not exist: {self.docs_folder}")
@@ -324,6 +377,19 @@ class RAGSystem:
         if self.index_path:
             self.save_index()
 
+    def _get_blob_names(self) -> Tuple[str, str, str]:
+        if self.index_path:
+            # Use index_path as base for blob names
+            base_name = self.index_path.name
+        else:
+            # Fallback to default name
+            base_name = "rag_index"
+        return (
+            f"{base_name}.index",
+            f"{base_name}.metadata.pkl",
+            f"{base_name}.docs_manifest.pkl",
+        )
+
     def save_index(self) -> None:
         if self.index_path is None:
             raise ValueError("index_path not set, cannot save index")
@@ -334,13 +400,63 @@ class RAGSystem:
         logger.info("Saving index to: %s", self.index_path)
         self.index_path.parent.mkdir(parents=True, exist_ok=True)
 
-        faiss.write_index(self.index, str(self.index_path) + ".index")
+        index_file_path = Path(str(self.index_path) + ".index")
+        faiss.write_index(self.index, str(index_file_path))
 
         metadata_path = self.index_path.with_suffix(".metadata.pkl")
         with open(metadata_path, "wb") as f:
             pickle.dump(self.metadata, f)
 
-        logger.info("Saved index and metadata")
+        manifest_path = self.index_path.with_suffix(".docs_manifest.pkl")
+        docs_manifest = self._compute_docs_manifest()
+        with open(manifest_path, "wb") as f:
+            pickle.dump(docs_manifest, f)
+
+        logger.info(
+            "Saved index, metadata, and docs manifest locally (%d docs)",
+            len(docs_manifest),
+        )
+
+        if self.azure_blob and self.azure_blob.is_available():
+            try:
+                index_blob_name, metadata_blob_name, manifest_blob_name = self._get_blob_names()
+                
+                if index_file_path.exists():
+                    success = self.azure_blob.upload_file(
+                        blob_name=index_blob_name,
+                        file_path=index_file_path,
+                        overwrite=True,
+                    )
+                    if success:
+                        logger.info("Uploaded index to Azure Blob Storage: %s", index_blob_name)
+                    else:
+                        logger.warning("Failed to upload index to Azure Blob Storage")
+                
+                # Upload metadata file
+                if metadata_path.exists():
+                    success = self.azure_blob.upload_file(
+                        blob_name=metadata_blob_name,
+                        file_path=metadata_path,
+                        overwrite=True,
+                    )
+                    if success:
+                        logger.info("Uploaded metadata to Azure Blob Storage: %s", metadata_blob_name)
+                    else:
+                        logger.warning("Failed to upload metadata to Azure Blob Storage")
+
+                # Upload docs manifest
+                if manifest_path.exists():
+                    success = self.azure_blob.upload_file(
+                        blob_name=manifest_blob_name,
+                        file_path=manifest_path,
+                        overwrite=True,
+                    )
+                    if success:
+                        logger.info("Uploaded docs manifest to Azure Blob Storage: %s", manifest_blob_name)
+                    else:
+                        logger.warning("Failed to upload docs manifest to Azure Blob Storage")
+            except Exception as e:
+                logger.warning("Failed to save index to Azure Blob Storage: %s", str(e))
 
     def load_index(self) -> None:
         if self.index_path is None:
@@ -348,24 +464,134 @@ class RAGSystem:
 
         index_file = Path(str(self.index_path) + ".index")
         metadata_file = self.index_path.with_suffix(".metadata.pkl")
+        manifest_file = self.index_path.with_suffix(".docs_manifest.pkl")
 
-        if not index_file.exists():
-            raise FileNotFoundError(f"Index file not found: {index_file}")
-        if not metadata_file.exists():
-            raise FileNotFoundError(f"Metadata file not found: {metadata_file}")
+        # Try to load from Azure Blob Storage first
+        loaded_from_azure = False
+        if self.azure_blob and self.azure_blob.is_available():
+            try:
+                index_blob_name, metadata_blob_name, manifest_blob_name = self._get_blob_names()
+                
+                # Check if blobs exist in Azure
+                if self.azure_blob.blob_exists(index_blob_name) and self.azure_blob.blob_exists(metadata_blob_name):
+                    logger.info("RAG: Found index in Azure Blob Storage, downloading...")
+                    
+                    # Download index
+                    index_data = self.azure_blob.download_bytes(index_blob_name)
+                    if index_data:
+                        # Save to local file for FAISS to read
+                        index_file.parent.mkdir(parents=True, exist_ok=True)
+                        with open(index_file, "wb") as f:
+                            f.write(index_data)
 
-        logger.info("RAG: Loading index from: %s", index_file)
+                        # Download metadata
+                        metadata_data = self.azure_blob.download_bytes(metadata_blob_name)
+                        if metadata_data:
+                            # Save to local file
+                            metadata_file.parent.mkdir(parents=True, exist_ok=True)
+                            with open(metadata_file, "wb") as f:
+                                f.write(metadata_data)
+                            
+                            loaded_from_azure = True
+                            logger.info("RAG: Successfully downloaded index and metadata from Azure Blob Storage")
+                        else:
+                            logger.warning("RAG: Failed to download metadata from Azure Blob Storage")
+
+                        # Download docs manifest (optional but preferred)
+                        manifest_data = self.azure_blob.download_bytes(manifest_blob_name)
+                        if manifest_data:
+                            manifest_file.parent.mkdir(parents=True, exist_ok=True)
+                            with open(manifest_file, "wb") as f:
+                                f.write(manifest_data)
+                            logger.info("RAG: Downloaded docs manifest from Azure Blob Storage")
+                    else:
+                        logger.warning("RAG: Failed to download index from Azure Blob Storage")
+                else:
+                    logger.debug("RAG: Index not found in Azure Blob Storage, checking local files")
+            except Exception as e:
+                logger.warning("RAG: Failed to load from Azure Blob Storage: %s, falling back to local", str(e))
+
+        # Load from local files (either as fallback or primary)
+        if not loaded_from_azure:
+            if not index_file.exists():
+                raise FileNotFoundError(f"Index file not found: {index_file}")
+            if not metadata_file.exists():
+                raise FileNotFoundError(f"Metadata file not found: {metadata_file}")
+            logger.info("RAG: Loading index from local files: %s", index_file)
+
+        # Read index and metadata (now available locally)
         self.index = faiss.read_index(str(index_file))
 
         with open(metadata_file, "rb") as f:
             self.metadata = pickle.load(f)
 
+        source = "Azure Blob Storage" if loaded_from_azure else "local files"
         logger.info(
-            "RAG: Loaded index with %d vectors and %d metadata entries (docs_folder=%s)",
+            "RAG: Loaded index with %d vectors and %d metadata entries from %s (docs_folder=%s)",
             self.index.ntotal,
             len(self.metadata),
+            source,
             self.docs_folder,
         )
+
+    def ensure_index_up_to_date(self) -> None:
+        if self.index_path is None:
+            raise ValueError("index_path not set, cannot ensure index up to date")
+
+        index_file = Path(str(self.index_path) + ".index")
+        manifest_file = self.index_path.with_suffix(".docs_manifest.pkl")
+
+        try:
+            self.load_index()
+        except FileNotFoundError:
+            logger.info(
+                "RAG: No existing index found (neither Azure nor local). "
+                "Building a new index from docs folder '%s'...",
+                self.docs_folder,
+            )
+            self.build_index()
+            return
+
+        if not manifest_file.exists():
+            logger.info(
+                "RAG: Docs manifest not found alongside index (%s). "
+                "Assuming index may be stale and rebuilding from docs folder '%s'.",
+                manifest_file,
+                self.docs_folder,
+            )
+            self.build_index()
+            return
+
+        try:
+            with open(manifest_file, "rb") as f:
+                stored_manifest: Dict[str, Dict[str, Any]] = pickle.load(f)
+        except Exception as e:
+            logger.warning(
+                "RAG: Failed to load docs manifest from %s (%s). Rebuilding index.",
+                manifest_file,
+                str(e),
+            )
+            self.build_index()
+            return
+
+        current_manifest = self._compute_docs_manifest()
+
+        if stored_manifest == current_manifest:
+            logger.info(
+                "RAG: Docs folder unchanged since last index build (%d docs). "
+                "Reusing existing index from %s.",
+                len(current_manifest),
+                index_file,
+            )
+            return
+
+        logger.info(
+            "RAG: Docs folder changed since last index build "
+            "(previous=%d docs, current=%d docs). Rebuilding index.",
+            len(stored_manifest),
+            len(current_manifest),
+        )
+        self.build_index()
 
     def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         if self.index is None:
