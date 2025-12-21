@@ -58,6 +58,16 @@ def setup_styles(doc):
             h.paragraph_format.keep_with_next = True  # Avoids headings dangling at bottom
         except KeyError:
             logger.warning(f"Heading {level} style not found, skipping")
+    
+    try:
+        list_bullet = doc.styles["List Bullet"]
+        list_bullet.font.name = "Calibri"
+        list_bullet.font.size = Pt(11)
+        pf = list_bullet.paragraph_format
+        pf.left_indent = Inches(0.25)
+        pf.first_line_indent = Inches(-0.25)
+    except KeyError:
+        logger.warning("List Bullet style not found, will use default")
 
 
 def setup_page_formatting(doc):
@@ -329,6 +339,48 @@ def _add_formatted_text_to_paragraph(para, text: str):
                 run.bold = True
 
 
+def _add_bullet_paragraph(doc, content: str):
+    """Add a paragraph with proper bullet point formatting using standard bullets."""
+    para = doc.add_paragraph()
+    
+    # Set up proper indentation for bullet point
+    pf = para.paragraph_format
+    pf.left_indent = Inches(0.25)
+    pf.first_line_indent = Inches(-0.25)
+    pf.space_after = Pt(6)
+    
+    # Add bullet character
+    bullet_run = para.add_run('• ')  # Standard bullet character
+    bullet_run.font.name = "Calibri"
+    bullet_run.font.size = Pt(11)
+    
+    # Add formatted content (handle bold formatting)
+    parts = []
+    last_end = 0
+    
+    for match in re.finditer(r'\*\*(.*?)\*\*', content):
+        if match.start() > last_end:
+            parts.append(('normal', content[last_end:match.start()]))
+        parts.append(('bold', match.group(1)))
+        last_end = match.end()
+    
+    if last_end < len(content):
+        parts.append(('normal', content[last_end:]))
+    
+    if not parts:
+        parts = [('normal', content)]
+    
+    for fmt_type, part_content in parts:
+        if part_content:  # Only add non-empty content
+            run = para.add_run(part_content)
+            run.font.name = "Calibri"
+            run.font.size = Pt(11)
+            if fmt_type == 'bold':
+                run.bold = True
+    
+    return para
+
+
 def _start_table(doc, header_cells: List[str]):
     """Create a new table with header row. Returns the table object."""
     num_cols = len(header_cells)
@@ -483,15 +535,21 @@ def _parse_markdown_to_docx(doc, text: str):
                     # Now add the complete list item
                     full_content = ' '.join(list_item_buffer)
                     list_item_buffer = []
-                    para = doc.add_paragraph(style='List Bullet' if is_bullet else 'List Number')
                     full_content = _capitalize_sentence(full_content)
-                    _add_formatted_text_to_paragraph(para, full_content)
+                    if is_bullet:
+                        _add_bullet_paragraph(doc, full_content)
+                    else:
+                        para = doc.add_paragraph(style='List Number')
+                        _add_formatted_text_to_paragraph(para, full_content)
                     continue
             
             # Single-line list item
             content = _capitalize_sentence(content)
-            para = doc.add_paragraph(style='List Bullet' if is_bullet else 'List Number')
-            _add_formatted_text_to_paragraph(para, content)
+            if is_bullet:
+                _add_bullet_paragraph(doc, content)
+            else:
+                para = doc.add_paragraph(style='List Number')
+                _add_formatted_text_to_paragraph(para, content)
             i += 1
             continue
         
