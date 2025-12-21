@@ -22,6 +22,25 @@ export async function processRFP(files) {
   return await response.json();
 }
 
+export async function runPreprocess(ocrText) {
+  const response = await fetch(`${API_BASE}/run-preprocess`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ocr_text: ocrText,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Preprocess backend error ${response.status}: ${text.slice(0, 200)}`);
+  }
+
+  return await response.json();
+}
+
 export async function runRequirements(essentialText) {
   const response = await fetch(`${API_BASE}/run-requirements`, {
     method: "POST",

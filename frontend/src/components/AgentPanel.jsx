@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { usePipeline } from '../context/PipelineContext'
-import { runRequirements, buildQuery, generateResponse, generateQuestions, createChatSession, addQuestionsToSession, previewResponses, updateResponse, generatePDFFromPreview, updateRequirements, getSession } from '../services/api'
+import { runPreprocess, runRequirements, buildQuery, generateResponse, generateQuestions, createChatSession, addQuestionsToSession, previewResponses, updateResponse, generatePDFFromPreview, updateRequirements, getSession } from '../services/api'
 import StatusPill from './StatusPill'
 import OutputDisplay from './OutputDisplay'
 import Button from './Button'
@@ -66,10 +66,18 @@ export default function AgentPanel({ agentId }) {
   const [showChat, setShowChat] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [previewData, setPreviewData] = useState(null)
+  const [ocrDraft, setOcrDraft] = useState('')
   const [preprocessDraft, setPreprocessDraft] = useState('')
   const [requirementsDraft, setRequirementsDraft] = useState('')
   const [buildQueryDraft, setBuildQueryDraft] = useState('')
   const [questionsGenerated, setQuestionsGenerated] = useState(false)
+  
+  // Initialize OCR draft when OCR data is first available
+  useEffect(() => {
+    if (agentId === 'ocr' && pipelineData.ocr && !ocrDraft) {
+      setOcrDraft(pipelineData.ocr)
+    }
+  }, [agentId, pipelineData.ocr])
   
   // Auto-show chat when viewing requirements panel if session exists
   useEffect(() => {
@@ -174,6 +182,44 @@ export default function AgentPanel({ agentId }) {
   }
 
   // Handle requirements generation
+  // Handle OCR confirmation - run preprocess agent
+  const handleConfirmOCR = async () => {
+    if (!ocrDraft.trim()) {
+      alert('OCR text cannot be empty.')
+      return
+    }
+
+    try {
+      updateStatus('preprocess', 'processing')
+      setSummary('Running preprocess agent...')
+      
+      // Update OCR data with edited text
+      updatePipelineData('ocr', ocrDraft)
+      
+      // Run preprocess agent
+      const preprocessData = await runPreprocess(ocrDraft)
+      updatePipelineData('preprocess', preprocessData)
+      updateStatus('preprocess', 'complete')
+      updateStatus('requirements', 'waiting')
+      
+      const pp = preprocessData
+      setSummary(`Language: ${pp.language || 'unknown'}, Cleaned: ${pp.cleaned_text?.length || 0} chars`)
+      
+      // Switch to preprocess tab to show results
+      setActiveTab('preprocess')
+    } catch (err) {
+      console.error(err)
+      updateStatus('preprocess', 'error')
+      const errorMsg = err.message || 'Unknown error occurred'
+      setSummary(`Failed to run preprocess agent: ${errorMsg}`)
+      
+      // Provide retry option
+      if (confirm(`Failed to run preprocess agent: ${errorMsg}\n\nWould you like to try again?`)) {
+        handleConfirmOCR()
+      }
+    }
+  }
+
   const handleRunRequirements = async () => {
     if (!pipelineData.preprocess?.cleaned_text) {
       console.warn('Cannot run requirements: preprocess not ready', {
@@ -599,8 +645,33 @@ export default function AgentPanel({ agentId }) {
         <div className="badge">{config.badge}</div>
       )}
      
-      {/* Scope / Requirements / Build Query editable views */}
-      {agentId === 'preprocess' && editable.preprocess && pipelineData.preprocess ? (
+      {/* OCR editable view */}
+      {agentId === 'ocr' && pipelineData.ocr ? (
+        <div className="editable-section">
+          <label className="edit-label">
+            Edit OCR text before running preprocess agent:
+          </label>
+          <textarea
+            className="edit-textarea"
+            value={ocrDraft}
+            onChange={(e) => setOcrDraft(e.target.value)}
+            rows={20}
+            placeholder="OCR text will appear here..."
+          />
+          <div className="accept-row" style={{ marginTop: '0.5rem' }}>
+            <Button 
+              onClick={handleConfirmOCR} 
+              disabled={statuses.preprocess === 'processing' || !ocrDraft.trim()}
+            >
+              {statuses.preprocess === 'processing' 
+                ? 'Processing...' 
+                : statuses.preprocess === 'complete'
+                ? '✓ OCR confirmed'
+                : 'Confirm & Run Preprocess'}
+            </Button>
+          </div>
+        </div>
+      ) : agentId === 'preprocess' && editable.preprocess && pipelineData.preprocess ? (
         <div className="editable-section">
           <label className="edit-label">
             Edit preprocess JSON before running requirements:

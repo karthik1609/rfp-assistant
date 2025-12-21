@@ -345,8 +345,32 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
         logger.warning("REQUEST %s: no text extracted from files", request_id)
         raise HTTPException(status_code=400, detail="No text could be extracted from the uploaded files.")
 
+    elapsed = time.time() - t0
+    logger.info("REQUEST %s: OCR extraction completed in %.2fs", request_id, elapsed)
+    
+    response: Dict[str, Any] = {
+        "preprocess": None,
+        "requirements": None,
+        "ocr_source_text": text,
+    }
+    return response
+
+
+class PreprocessRequest(BaseModel):
+    ocr_text: str
+
+
+@app.post("/run-preprocess")
+async def run_preprocess(req: PreprocessRequest) -> Dict[str, Any]:
+    request_id = str(uuid.uuid4())
+    logger.info("REQUEST %s: /run-preprocess called with %d chars", request_id, len(req.ocr_text))
+    
+    if not req.ocr_text.strip():
+        raise HTTPException(status_code=400, detail="OCR text is empty.")
+    
+    t0 = time.time()
     try:
-        preprocess_res = run_preprocess_agent(text)
+        preprocess_res = run_preprocess_agent(req.ocr_text)
     except Exception as exc:
         elapsed = time.time() - t0
         logger.exception(
@@ -359,6 +383,7 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
             status_code=500,
             detail=f"Preprocess agent failed for request {request_id}. Check server logs.",
         ) from exc
+    
     elapsed = time.time() - t0
     logger.info(
         "REQUEST %s: preprocess agent finished (cleaned_chars=%d, removed_chars=%d, comparison_agreement=%s)",
@@ -367,15 +392,12 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
         len(preprocess_res.removed_text or ""),
         preprocess_res.comparison_agreement,
     )
-    logger.info("REQUEST %s: OCR + preprocess completed in %.2fs", request_id, elapsed)
+    logger.info("REQUEST %s: preprocess completed in %.2fs", request_id, elapsed)
     
-    response: Dict[str, Any] = {
-        "preprocess": preprocess_res.to_dict(),
-        "requirements": None,
-        "ocr_source_text": text,
-    }
-    response["preprocess"]["ocr_text"] = text
+    response: Dict[str, Any] = preprocess_res.to_dict()
+    response["ocr_text"] = req.ocr_text
     return response
+
 
 class RequirementsRequest(BaseModel):
     essential_text: str

@@ -28,20 +28,19 @@ export default function UploadSection() {
     setIsProcessing(true)
     resetPipeline()
     const fileCount = files.length
-    setStatus(`Uploading ${fileCount} file${fileCount > 1 ? 's' : ''} and running agents… this may take a moment.`)
+    setStatus(`Uploading ${fileCount} file${fileCount > 1 ? 's' : ''} and extracting text… this may take a moment.`)
 
     try {
-      updateStatus('preprocess', 'processing')
       const data = await processRFP(files)
 
-      // Update pipeline data
+      // Update pipeline data with OCR text only
       updatePipelineData('ocr', data.ocr_source_text || 'No OCR text returned.')
-      updatePipelineData('preprocess', data.preprocess)
+      
+      // Preprocess will be run separately after user confirms/edits OCR text
+      updatePipelineData('preprocess', null)
+      updateStatus('preprocess', 'waiting')
 
-      updateStatus('preprocess', 'complete')
-      updateStatus('requirements', 'waiting')
-
-      setStatus('Preprocess step finished. You can now run the requirements agent.')
+      setStatus('OCR extraction finished. Please review and confirm the OCR text to proceed.')
     } catch (err) {
       console.error(err)
       setStatus(`Failed to process files: ${err.message}`)

@@ -14,7 +14,7 @@ const TABS = [
 export default function AgentTabs() {
   const { activeTab, setActiveTab, pipelineData } = usePipeline()
 
-  const hasData = pipelineData.preprocess !== null
+  const hasData = pipelineData.ocr !== null || pipelineData.preprocess !== null
 
   if (!hasData) {
     return null

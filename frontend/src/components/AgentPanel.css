@@ -51,4 +51,46 @@
   color: #9ca3af;
 }
 
+.editable-section {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+
+.edit-label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #9ca3af;
+  margin-bottom: 0.5rem;
+}
+
+.edit-textarea {
+  background: rgba(2, 6, 23, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  color: #e5e7eb;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  width: 100%;
+  resize: vertical;
+  min-height: 200px;
+}
+
+.edit-textarea:focus {
+  outline: none;
+  border-color: rgba(37, 99, 235, 0.5);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.edit-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 
