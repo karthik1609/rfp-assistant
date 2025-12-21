@@ -437,6 +437,34 @@ class BuildQueryRequest(BaseModel):
     requirements: Dict[str, Any]
 
 
+def _extract_title_from_key_requirements(key_requirements_summary: str) -> Optional[str]:
+    """Extract the first bullet point from key_requirements_summary to use as title.
+    
+    The key_requirements_summary is expected to be a string with bullet points separated by newlines.
+    This function extracts the first bullet point (removing the bullet marker) to use as the document title.
+    """
+    if not key_requirements_summary:
+        return None
+    
+    # Split by newlines and find the first bullet point
+    lines = key_requirements_summary.strip().split('\n')
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # Remove common bullet point markers (with optional space after)
+        for marker in ['-', '•', '*', '·']:
+            if line.startswith(marker):
+                # Remove marker and any following space
+                title = line[1:].strip()
+                if title:  # Only return if there's content after the marker
+                    return title
+        # If no marker found, return the first non-empty line as-is
+        return line
+    
+    return None
+
+
 def _extraction_from_preprocess(pre: PreprocessResult) -> ExtractionResult:
     return ExtractionResult(
         translated_text="",
@@ -614,9 +642,7 @@ async def _generate_structured_response(
                 detail="DOCX generation not available. Install python-docx to enable Word export.",
             )
         
-        rfp_title = f"RFP Response (Structured)"
-        if extraction_result.key_requirements_summary:
-            rfp_title = f"RFP Response (Structured) - {extraction_result.key_requirements_summary[:50]}..."
+        rfp_title = _extract_title_from_key_requirements(extraction_result.key_requirements_summary)
         
         project_root = Path(__file__).parent.parent
         output_dir = project_root / "output" / "docx"
@@ -662,9 +688,7 @@ def _generate_docx_response(
     if not generate_rfp_docx:
         raise ImportError("DOCX generation not available. Install python-docx.")
     
-    rfp_title = f"RFP Response"
-    if extraction_result.key_requirements_summary:
-        rfp_title = f"RFP Response - {extraction_result.key_requirements_summary[:50]}..."
+    rfp_title = _extract_title_from_key_requirements(extraction_result.key_requirements_summary)
     
     logger.info("Generating DOCX with %d individual responses", len(individual_responses))
     docx_start_time = time.time()
@@ -963,9 +987,7 @@ async def _generate_per_requirement_response(
             if not generate_rfp_docx:
                 raise ImportError("DOCX generation not available. Install python-docx.")
             
-            rfp_title = f"RFP Response"
-            if extraction_result.key_requirements_summary:
-                rfp_title = f"RFP Response - {extraction_result.key_requirements_summary[:50]}..."
+            rfp_title = _extract_title_from_key_requirements(extraction_result.key_requirements_summary)
             
             logger.info("Generating DOCX with %d individual responses", len(individual_responses))
             docx_start_time = time.time()
@@ -1715,9 +1737,7 @@ async def generate_pdf_from_preview_endpoint(req: GeneratePDFFromPreviewRequest)
     extraction_result = _extraction_from_preprocess(preprocess_result)
     requirements_result = RequirementsResult(**req.requirements)
     
-    rfp_title = f"RFP Response"
-    if extraction_result.key_requirements_summary:
-        rfp_title = f"RFP Response - {extraction_result.key_requirements_summary[:50]}..."
+    rfp_title = _extract_title_from_key_requirements(extraction_result.key_requirements_summary)
     
     project_root = Path(__file__).parent.parent
     timestamp = int(time.time())

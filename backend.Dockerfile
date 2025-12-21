@@ -24,6 +24,9 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY backend backend
 COPY docs ./docs
 COPY image.png image.png
+# Copy logo files for document generation (same as used in frontend)
+COPY frontend/src/assets/logo-transparent.png ./assets/logo-transparent.png
+COPY frontend/src/assets/logo.png ./assets/logo.png
 
 EXPOSE 8001
 

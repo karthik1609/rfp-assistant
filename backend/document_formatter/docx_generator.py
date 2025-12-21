@@ -22,6 +22,13 @@ except ImportError:
     DOCX_AVAILABLE = False
     logger.warning("python-docx not available. DOCX export will not work.")
 
+try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    logger.warning("PIL/Pillow not available. Logo may not display correctly.")
+
 
 def clear_paragraph(paragraph):
     """Clear all runs from a paragraph by removing XML children."""
@@ -69,6 +76,172 @@ def setup_page_formatting(doc):
     fld = OxmlElement('w:fldSimple')
     fld.set(qn('w:instr'), 'PAGE')
     run._r.append(fld)
+
+
+def add_modern_front_page(doc, title: str, project_root: Optional[Path] = None):
+    """Create a modern, professional front page with logo and title."""
+    # Find logo path - try multiple locations (same path as used in frontend Header.jsx)
+    if project_root is None:
+        project_root = Path(__file__).parent.parent.parent
+    
+    logo_path = None
+    # Try multiple possible logo locations (prioritize the same path as frontend)
+    possible_logo_paths = [
+        # Same path as frontend/src/components/Header.jsx uses
+        project_root / "frontend" / "src" / "assets" / "logo-transparent.png",
+        project_root / "frontend" / "src" / "assets" / "logo.png",
+        # Docker/backend assets folder (copied during build)
+        project_root / "assets" / "logo-transparent.png",
+        project_root / "assets" / "logo.png",
+        # Fallback locations
+        project_root / "backend" / "assets" / "logo-transparent.png",
+        project_root / "backend" / "assets" / "logo.png",
+    ]
+    
+    for path in possible_logo_paths:
+        if path.exists():
+            logo_path = path
+            logger.info(f"Found logo at: {logo_path}")
+            break
+    
+    if logo_path is None:
+        logger.warning(f"Logo not found. Tried paths: {[str(p) for p in possible_logo_paths]}")
+    
+    # Add spacing at top
+    for _ in range(2):
+        doc.add_paragraph()
+    
+    # Add logo if available
+    if logo_path and logo_path.exists():
+        try:
+            logo_para = doc.add_paragraph()
+            logo_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            # Add logo with appropriate size
+            run = logo_para.add_run()
+            if PIL_AVAILABLE:
+                # Get image dimensions to maintain aspect ratio
+                try:
+                    img = Image.open(logo_path)
+                    width, height = img.size
+                    aspect_ratio = width / height
+                    # Set height to 1.5 inches, calculate width
+                    logo_height = Inches(1.5)
+                    logo_width = Inches(1.5 * aspect_ratio)
+                    logger.info(f"Logo dimensions: {width}x{height}, display size: {logo_width} x {logo_height}")
+                except Exception as e:
+                    logger.warning(f"Failed to get logo dimensions: {e}")
+                    logo_width = Inches(3.5)
+                    logo_height = Inches(1.5)
+            else:
+                logo_width = Inches(3.5)
+                logo_height = Inches(1.5)
+            
+            run.add_picture(str(logo_path), width=logo_width, height=logo_height)
+            logger.info(f"Successfully added logo to front page")
+            
+            # Add spacing after logo
+            doc.add_paragraph()
+            doc.add_paragraph()
+        except Exception as e:
+            logger.error(f"Failed to add logo to front page: {e}", exc_info=True)
+    else:
+        logger.warning("Logo not found or not accessible, skipping logo on front page")
+    
+    # Add title with modern styling (handle long titles with word wrap)
+    # Adjust font size based on title length
+    title_length = len(title)
+    if title_length > 80:
+        font_size = Pt(24)
+    elif title_length > 60:
+        font_size = Pt(28)
+    else:
+        font_size = Pt(32)
+    
+    title_para = doc.add_paragraph()
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_para.paragraph_format.space_after = Pt(12)
+    title_para.paragraph_format.space_before = Pt(0)
+    
+    # Enable word wrap and prevent truncation
+    title_para.paragraph_format.widow_control = False
+    title_para.paragraph_format.keep_together = False
+    title_para.paragraph_format.keep_with_next = False
+    
+    # Set paragraph properties to allow wrapping and prevent truncation
+    p_pr = title_para._element.get_or_add_pPr()
+    # Remove any text overflow restrictions
+    try:
+        # Ensure text can wrap - set word wrap property
+        wrap = OxmlElement('w:wordWrap')
+        wrap.set(qn('w:val'), '0')  # 0 = wrap text
+        p_pr.append(wrap)
+        
+        # Remove any overflow clip settings
+        overflow = OxmlElement('w:overflowPunct')
+        overflow.set(qn('w:val'), '0')  # Allow punctuation to overflow
+        p_pr.append(overflow)
+        
+        # Remove any width restrictions - ensure paragraph can use full page width
+        # Remove any indentation that might restrict width
+        if p_pr.find(qn('w:ind')) is not None:
+            p_pr.remove(p_pr.find(qn('w:ind')))
+    except Exception:
+        pass
+    
+    # Always add title as a single run to let Word handle wrapping naturally
+    # This prevents truncation issues
+    title_run = title_para.add_run(title)
+    title_run.font.name = "Calibri"
+    title_run.font.size = font_size
+    title_run.font.bold = True
+    title_run.font.color.rgb = RGBColor(26, 84, 144)
+    
+    # Ensure the run doesn't have any restrictions that might cause truncation
+    try:
+        r_pr = title_run._element.get_or_add_rPr()
+        # Remove any text effects that might truncate
+        # Ensure no character limits are applied
+    except Exception:
+        pass
+    
+    logger.info(f"Added title to front page: '{title[:50]}...' (length: {title_length}, font size: {font_size})")
+    
+    # Add spacing
+    doc.add_paragraph()
+    doc.add_paragraph()
+    
+    # Add date with subtle styling
+    date_para = doc.add_paragraph()
+    date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    date_run = date_para.add_run(datetime.now().strftime("%B %d, %Y"))
+    date_run.font.name = "Calibri"
+    date_run.font.size = Pt(14)
+    date_run.font.color.rgb = RGBColor(100, 100, 100)  # Gray
+    
+    # Add more spacing
+    for _ in range(4):
+        doc.add_paragraph()
+    
+    # Add company info section with modern styling
+    company_para = doc.add_paragraph()
+    company_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    company_run = company_para.add_run("fusionAIx")
+    company_run.font.name = "Calibri"
+    company_run.font.size = Pt(20)
+    company_run.font.bold = True
+    company_run.font.color.rgb = RGBColor(26, 84, 144)
+    
+    # Add website
+    website_para = doc.add_paragraph()
+    website_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    website_run = website_para.add_run("www.fusionaix.com")
+    website_run.font.name = "Calibri"
+    website_run.font.size = Pt(12)
+    website_run.font.color.rgb = RGBColor(100, 100, 100)
+    
+    # Add decorative line (optional - using spacing instead for cleaner look)
+    doc.add_paragraph()
 
 
 def add_word_toc(paragraph):
@@ -415,17 +588,12 @@ def generate_rfp_docx(
     # Setup page formatting (margins and footer)
     setup_page_formatting(doc)
     
-    title_para = doc.add_heading(rfp_title or f"RFP Response - {extraction_result.language.upper()}", 0)
-    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Determine project root for logo path (always calculate from file location)
+    project_root = Path(__file__).parent.parent.parent
     
-    date_para = doc.add_paragraph(datetime.now().strftime("%B %d, %Y"))
-    date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    company_para = doc.add_paragraph("fusionAIx")
-    company_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    website_para = doc.add_paragraph("www.fusionaix.com")
-    website_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    # Create modern front page
+    final_title = rfp_title or extraction_result.language.upper()
+    add_modern_front_page(doc, final_title, project_root)
     
     doc.add_page_break()
     

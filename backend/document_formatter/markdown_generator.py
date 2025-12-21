@@ -21,7 +21,7 @@ def generate_rfp_markdown(
     
     lines = []
     
-    title = rfp_title or f"RFP Response - {extraction_result.language.upper()}"
+    title = rfp_title or extraction_result.language.upper()
     lines.append(f"# {title}")
     lines.append("")
     lines.append(f"**Date:** {datetime.now().strftime('%B %d, %Y')}")

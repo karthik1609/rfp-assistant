@@ -238,7 +238,7 @@ def generate_rfp_pdf(
         logo_path_str = COMPANY_INFO["logo_path"]
     
     if not rfp_title:
-        rfp_title = f"RFP Response - {extraction_result.language.upper()}"
+        rfp_title = extraction_result.language.upper()
     
     company_info_with_logo = COMPANY_INFO.copy()
     company_info_with_logo["logo_path"] = logo_path_str

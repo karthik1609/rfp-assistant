@@ -783,7 +783,7 @@ export default function AgentPanel({ agentId }) {
             Preview Responses
           </Button>
           <Button onClick={handleGenerateResponse} disabled={status === 'processing'}>
-            Generate PDF Directly
+            Generate DOCX Directly
           </Button>
         </div>
       )}

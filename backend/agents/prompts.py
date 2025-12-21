@@ -197,6 +197,7 @@ IMPORTANT FOR removed_text:
 - key_requirements_summary: VERY SHORT global summary of key requirements
   - 3–7 bullet points maximum
   - Each bullet should be short and high-level (no full requirement text)
+  - **IMPORTANT: The FIRST bullet point will be used as the document title, so make it concise and descriptive (e.g., "Enterprise BPM Platform Implementation" or "Digital Transformation Services")**
 
 4) SELF-CHECK / COMPARISON
 - Compare cleaned_text vs the original text.
