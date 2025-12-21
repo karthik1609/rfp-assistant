@@ -15,6 +15,7 @@ try:
     from docx import Document
     from docx.shared import Inches, Pt, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.enum.section import WD_SECTION_START
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
     DOCX_AVAILABLE = True
@@ -70,17 +71,29 @@ def setup_styles(doc):
         logger.warning("List Bullet style not found, will use default")
 
 
-def setup_page_formatting(doc):
-    """Configure page margins and add footer page numbers."""
+def setup_page_formatting(doc, start_page_number: int = 1):
     section = doc.sections[0]
     section.top_margin = Inches(1)
     section.bottom_margin = Inches(1)
     section.left_margin = Inches(1)
     section.right_margin = Inches(1)
     
+    # Set starting page number (for sections after front page and TOC)
+    if start_page_number > 1:
+        sect_pr = section._sectPr
+        pg_num_type = OxmlElement('w:pgNumType')
+        pg_num_type.set(qn('w:start'), str(start_page_number))
+        sect_pr.append(pg_num_type)
+    
     # Add page number to footer
     footer = section.footer
-    p = footer.paragraphs[0]
+    # Ensure footer has at least one paragraph
+    if len(footer.paragraphs) == 0:
+        p = footer.add_paragraph()
+    else:
+        p = footer.paragraphs[0]
+        # Clear existing content if any
+        p.clear()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = p.add_run()
     fld = OxmlElement('w:fldSimple')
@@ -254,12 +267,29 @@ def add_modern_front_page(doc, title: str, project_root: Optional[Path] = None):
     doc.add_paragraph()
 
 
-def add_word_toc(paragraph):
-    """Insert a real Word TOC field that can be auto-updated."""
-    run = paragraph.add_run()
-    fld = OxmlElement('w:fldSimple')
-    fld.set(qn('w:instr'), 'TOC \\o "1-3" \\h \\z \\u')
-    run._r.append(fld)
+def add_manual_toc(doc, toc_entries: List[Dict[str, Any]]):
+    """Add a manual table of contents without page numbers."""
+    if not toc_entries:
+        para = doc.add_paragraph("No table of contents entries available.")
+        return
+    
+    for entry in toc_entries:
+        para = doc.add_paragraph()
+        para.style = 'Normal'
+        
+        # Add indentation based on level
+        pf = para.paragraph_format
+        indent_level = (entry.get('level', 1) - 1) * 0.5  # 0.5 inches per level
+        if indent_level > 0:
+            pf.left_indent = Inches(indent_level)
+        
+        # Add text only (no page numbers)
+        text = entry.get('text', '')
+        
+        # Add text
+        run = para.add_run(text)
+        run.font.name = "Calibri"
+        run.font.size = Pt(11)
 
 
 def set_table_header_cell(cell):
@@ -400,6 +430,24 @@ def _start_table(doc, header_cells: List[str]):
         set_table_header_cell(cell)
     
     return current_table
+
+
+def _extract_headings_from_markdown(text: str) -> List[Dict[str, Any]]:
+    headings = []
+    lines = text.split('\n')
+    
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('#### '):
+            headings.append({'text': _clean_markdown_text(stripped[5:]), 'level': 4})
+        elif stripped.startswith('### '):
+            headings.append({'text': _clean_markdown_text(stripped[4:]), 'level': 3})
+        elif stripped.startswith('## '):
+            headings.append({'text': _clean_markdown_text(stripped[3:]), 'level': 2})
+        elif stripped.startswith('# '):
+            headings.append({'text': _clean_markdown_text(stripped[2:]), 'level': 1})
+    
+    return headings
 
 
 def _parse_markdown_to_docx(doc, text: str):
@@ -638,13 +686,57 @@ def generate_rfp_docx(
     
     logger.info("Generating DOCX document: %d requirement responses", len(individual_responses))
     
+    # Extract TOC entries before generating content
+    is_structured = len(individual_responses) == 1 and individual_responses[0].get('requirement_id') == 'STRUCTURED'
+    toc_entries = []
+    
+    if is_structured:
+        # Prefer detected sections from structure detection if available
+        if (requirements_result.structure_detection and 
+            requirements_result.structure_detection.detected_sections):
+            # Use detected sections from structure detection
+            # Format with numbers (e.g., "1. Executive Summary", "2. Understanding...")
+            toc_entries = [
+                {'text': f"{idx + 1}. {section}", 'level': 1}
+                for idx, section in enumerate(requirements_result.structure_detection.detected_sections)
+            ]
+        else:
+            # Fallback: Extract headings from structured response
+            response_text = individual_responses[0].get('response', '')
+            headings = _extract_headings_from_markdown(response_text)
+            # Filter to only include numbered sections (e.g., "1. Executive Summary", "2. Understanding...")
+            # Exclude non-numbered headings like "Ministry of Trade and Industry (MTI)"
+            numbered_pattern = re.compile(r'^\d+\.\s+')
+            toc_entries = [
+                h for h in headings 
+                if h['level'] <= 2 and numbered_pattern.match(h['text'])
+            ]
+    else:
+        # Create TOC entries for each requirement
+        for idx, resp_data in enumerate(individual_responses, 1):
+            req_id = resp_data.get('requirement_id', 'N/A')
+            toc_entries.append({
+                'text': f"Requirement {idx}: {req_id}",
+                'level': 2,
+            })
+    
     doc = Document()
     
     # Setup styles first (cleanest output)
     setup_styles(doc)
     
-    # Setup page formatting (margins and footer)
-    setup_page_formatting(doc)
+    # Setup page formatting for first section (front page - no page numbers)
+    setup_page_formatting(doc, start_page_number=1)
+    
+    # Disable page numbers for first section (front page)
+    section = doc.sections[0]
+    sect_pr = section._sectPr
+    # Remove footer for first section
+    footer = section.footer
+    # Clear footer paragraphs instead of using clear_content()
+    for para in footer.paragraphs[:]:
+        p = para._element
+        p.getparent().remove(p)
     
     # Determine project root for logo path (always calculate from file location)
     project_root = Path(__file__).parent.parent.parent
@@ -653,15 +745,62 @@ def generate_rfp_docx(
     final_title = rfp_title or extraction_result.language.upper()
     add_modern_front_page(doc, final_title, project_root)
     
-    doc.add_page_break()
+    # Add new section for TOC (no page numbers) - NEW_PAGE creates the page break
+    section = doc.add_section(WD_SECTION_START.NEW_PAGE)
+    section.is_linked_to_previous = False  # Break link to previous section's header/footer
+    section.header.is_linked_to_previous = False
+    section.footer.is_linked_to_previous = False
+    sect_pr = section._sectPr
+    footer = section.footer
+    # Clear footer paragraphs instead of using clear_content()
+    for para in footer.paragraphs[:]:
+        p = para._element
+        p.getparent().remove(p)
     
     doc.add_heading("Table of Contents", 1)
+    doc.add_paragraph()  # Add spacing after heading
     
-    # Use real Word TOC field instead of manual list
-    toc_para = doc.add_paragraph()
-    add_word_toc(toc_para)
+    # Add manual TOC with structure or requirement names (no page numbers)
+    add_manual_toc(doc, toc_entries)
     
-    doc.add_page_break()
+    # Add new section for main content (with page numbers starting from 1, but it's actually page 3) - NEW_PAGE creates the page break
+    section = doc.add_section(WD_SECTION_START.NEW_PAGE)
+    section.is_linked_to_previous = False  # Break link to previous section's header/footer
+    section.header.is_linked_to_previous = False
+    section.footer.is_linked_to_previous = False
+    
+    # Set page number to start at 1 for this section (even though it's the 3rd physical page)
+    sect_pr = section._sectPr
+    # Remove any existing pgNumType element
+    existing_pg_num = sect_pr.find(qn('w:pgNumType'))
+    if existing_pg_num is not None:
+        sect_pr.remove(existing_pg_num)
+    # Create new page number type with restart at 1
+    pg_num_type = OxmlElement('w:pgNumType')
+    pg_num_type.set(qn('w:start'), '1')  # Start numbering at 1
+    pg_num_type.set(qn('w:fmt'), 'decimal')  # Use decimal numbering (1, 2, 3...)
+    sect_pr.append(pg_num_type)
+    
+    # Setup page formatting with footer for this section
+    section.top_margin = Inches(1)
+    section.bottom_margin = Inches(1)
+    section.left_margin = Inches(1)
+    section.right_margin = Inches(1)
+    
+    # Add page number to footer
+    footer = section.footer
+    # Ensure footer has at least one paragraph
+    if len(footer.paragraphs) == 0:
+        p = footer.add_paragraph()
+    else:
+        p = footer.paragraphs[0]
+        # Clear existing content if any
+        p.clear()
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run()
+    fld = OxmlElement('w:fldSimple')
+    fld.set(qn('w:instr'), 'PAGE')
+    run._r.append(fld)
     
     doc.add_heading("Company Overview", 1)
     overview_text = """At fusionAIx, we believe that the future of digital transformation lies in the seamless blend of low-code platforms and artificial intelligence. Our core team brings together decades of implementation experience, domain expertise, and a passion for innovation. We partner with enterprises to reimagine processes, accelerate application delivery, and unlock new levels of efficiency. We help businesses scale smarter, faster, and with greater impact.
