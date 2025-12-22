@@ -27,6 +27,8 @@ export default function UploadSection() {
 
     setIsProcessing(true)
     resetPipeline()
+    // Mark OCR step as processing in the pipeline progress
+    updateStatus('ocr', 'processing')
     const fileCount = files.length
     setStatus(`Uploading ${fileCount} file${fileCount > 1 ? 's' : ''} and extracting text… this may take a moment.`)
 
@@ -38,12 +40,15 @@ export default function UploadSection() {
       
       // Preprocess will be run separately after user confirms/edits OCR text
       updatePipelineData('preprocess', null)
+      // Mark OCR as complete, preprocess waiting
+      updateStatus('ocr', 'complete')
       updateStatus('preprocess', 'waiting')
 
       setStatus('OCR extraction finished. Please review and confirm the OCR text to proceed.')
     } catch (err) {
       console.error(err)
       setStatus(`Failed to process files: ${err.message}`)
+      updateStatus('ocr', 'error')
       updateStatus('preprocess', 'error')
     } finally {
       setIsProcessing(false)

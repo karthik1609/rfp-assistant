@@ -16,6 +16,14 @@ export default function ProgressTracker() {
   const getStepStatus = (stepId) => {
     const status = statuses[stepId] || 'waiting'
     
+    // Special handling for OCR: if OCR data exists, it's complete
+    if (stepId === 'ocr') {
+      if (pipelineData.ocr) {
+        return 'complete'
+      }
+      return status
+    }
+    
     // Preprocess must be confirmed before moving to requirements
     if (stepId === 'requirements' && !confirmations.preprocessConfirmed && status === 'waiting') {
       return 'blocked'

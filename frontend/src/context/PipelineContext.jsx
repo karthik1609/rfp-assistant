@@ -21,6 +21,7 @@ export function PipelineProvider({ children }) {
 
   const [activeTab, setActiveTab] = useState('ocr')
   const [statuses, setStatuses] = useState({
+    ocr: 'waiting',
     preprocess: 'waiting',
     requirements: 'waiting',
     buildQuery: 'waiting',
@@ -65,6 +66,7 @@ export function PipelineProvider({ children }) {
       response: null,
     })
     setStatuses({
+      ocr: 'waiting',
       preprocess: 'waiting',
       requirements: 'waiting',
       buildQuery: 'waiting',
