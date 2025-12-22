@@ -4,7 +4,7 @@ import AgentPanel from './AgentPanel'
 import './AgentTabs.css'
 
 const TABS = [
-  { id: 'ocr', label: '1. OCR (Qwen)' },
+  { id: 'ocr', label: '1. OCR' },
   { id: 'preprocess', label: '2. Preprocess agent' },
   { id: 'requirements', label: '3. Requirements' },
   { id: 'build-query', label: '4. Build Query' },

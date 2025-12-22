@@ -19,7 +19,7 @@ const AGENT_CONFIGS = {
   preprocess: {
     title: '2. Preprocess Agent',
     pillLabel: 'gpt-5-chat',
-    badge: 'Cleaned text + removed content + CPV / summary',
+    badge: 'Cleaned text + removed content + summary',
     showStatus: true,
   },
   requirements: {
@@ -550,7 +550,7 @@ export default function AgentPanel({ agentId }) {
       )}
       
       {config.badge && (
-        <div className="badge">{config.badge}</div>
+          <div className="badge">{config.badge}</div>
       )}
      
       {/* OCR editable view */}
@@ -690,7 +690,7 @@ export default function AgentPanel({ agentId }) {
 
       {config.showBuildQuery && agentId === 'requirements' && pipelineData.requirements && (
         <div className="accept-row">
-          {chatSessionId && showChat && (
+          {chatSessionId && showChat && !pipelineData.response && (
             <div style={{ 
               marginBottom: '1rem', 
               padding: '0.75rem', 
