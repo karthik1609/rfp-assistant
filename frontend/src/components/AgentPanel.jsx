@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import { usePipeline } from '../context/PipelineContext'
-import { runPreprocess, runRequirements, buildQuery, generateResponse, generateQuestions, createChatSession, addQuestionsToSession, previewResponses, updateResponse, generatePDFFromPreview, updateRequirements, getSession } from '../services/api'
+import { runPreprocess, runRequirements, buildQuery, generateResponse, createChatSession, updateRequirements, getSession } from '../services/api'
 import StatusPill from './StatusPill'
 import OutputDisplay from './OutputDisplay'
 import Button from './Button'
 import ChatInterface from './ChatInterface'
-import ResponsePreview from './ResponsePreview'
 import { formatPreprocessOutput, formatRequirementsOutput } from '../utils/formatters'
 import './AgentPanel.css'
 
@@ -64,8 +63,6 @@ export default function AgentPanel({ agentId }) {
 
   const [summary, setSummary] = useState('')
   const [showChat, setShowChat] = useState(false)
-  const [showPreview, setShowPreview] = useState(false)
-  const [previewData, setPreviewData] = useState(null)
   const [ocrDraft, setOcrDraft] = useState('')
   const [preprocessDraft, setPreprocessDraft] = useState('')
   const [requirementsDraft, setRequirementsDraft] = useState('')
@@ -299,38 +296,6 @@ export default function AgentPanel({ agentId }) {
     }
   }
 
-  // Handle preview responses
-  const handlePreviewResponses = async () => {
-    if (!pipelineData.preprocess || !pipelineData.requirements || !confirmations.buildQueryConfirmed) {
-      return
-    }
-
-    try {
-      updateStatus('response', 'processing')
-      setSummary('Generating responses for preview... This may take several minutes.')
-      
-      const previewData = await previewResponses(
-        pipelineData.preprocess,
-        pipelineData.requirements,
-        { 
-          use_rag: true, 
-          num_retrieval_chunks: 5,
-          session_id: chatSessionId,
-        }
-      )
-      
-      setPreviewData(previewData)
-      setShowPreview(true)
-      updateStatus('response', 'complete')
-      setSummary(`Generated ${previewData.total} responses. Review and edit before exporting.`)
-      setActiveTab('response')
-    } catch (err) {
-      console.error(err)
-      updateStatus('response', 'error')
-      setSummary(`Failed to generate preview: ${err.message}`)
-    }
-  }
-
   // Handle response generation (direct PDF)
   const handleGenerateResponse = async () => {
     if (!pipelineData.preprocess || !pipelineData.requirements || !confirmations.buildQueryConfirmed) {
@@ -384,64 +349,6 @@ export default function AgentPanel({ agentId }) {
       console.error(err)
       updateStatus('response', 'error')
       setSummary(`Failed to generate response: ${err.message}`)
-    }
-  }
-
-  // Handle response editing in preview
-  const handleEditResponse = async (requirementId, newText) => {
-    if (!previewData) return
-    
-    try {
-      await updateResponse(previewData.preview_id, requirementId, newText)
-      // Update local state
-      setPreviewData(prev => ({
-        ...prev,
-        responses: prev.responses.map(r => 
-          r.requirement_id === requirementId 
-            ? { ...r, response: newText }
-            : r
-        )
-      }))
-    } catch (err) {
-      console.error('Failed to update response:', err)
-      alert(`Failed to update response: ${err.message}`)
-    }
-  }
-
-  // Handle export from preview
-  const handleExportFromPreview = async (format = 'pdf') => {
-    if (!previewData) return
-    
-    try {
-      updateStatus('response', 'processing')
-      setSummary(`Generating ${format.toUpperCase()} from preview...`)
-      
-      const response = await generatePDFFromPreview(
-        previewData.preview_id,
-        pipelineData.preprocess,
-        pipelineData.requirements,
-        format
-      )
-      
-      if (response.type === 'blob') {
-        const url = window.URL.createObjectURL(response.blob)
-        const a = document.createElement('a')
-        a.href = url
-        const extension = format === 'docx' ? 'docx' : format === 'markdown' ? 'md' : 'pdf'
-        a.download = `rfp_response_${new Date().getTime()}.${extension}`
-        document.body.appendChild(a)
-        a.click()
-        window.URL.revokeObjectURL(url)
-        document.body.removeChild(a)
-        const sizeKB = (response.blob.size / 1024).toFixed(1)
-        setSummary(`${format.toUpperCase()} exported successfully (${sizeKB} KB)`)
-        setShowPreview(false)
-      }
-    } catch (err) {
-      console.error(err)
-      alert(`Failed to export ${format.toUpperCase()}: ${err.message}`)
-    } finally {
-      updateStatus('response', 'complete')
     }
   }
 
@@ -849,26 +756,14 @@ export default function AgentPanel({ agentId }) {
       )}
       
       {config.showGenerate && agentId === 'build-query' && confirmations.buildQueryConfirmed && questionsGenerated && allQuestionsAnswered && (
-        <div className="accept-row" style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
-          <Button onClick={handlePreviewResponses} disabled={status === 'processing'}>
-            Preview Responses
-          </Button>
+        <div className="accept-row" style={{ marginTop: '0.5rem' }}>
           <Button onClick={handleGenerateResponse} disabled={status === 'processing'}>
-            Generate DOCX Directly
+            Generate DOCX
           </Button>
         </div>
       )}
       
       {/* Chat is now in fixed sidebar - removed from here */}
-      
-      {showPreview && previewData && (
-        <ResponsePreview
-          responses={previewData.responses}
-          onEdit={handleEditResponse}
-          onExport={handleExportFromPreview}
-          onClose={() => setShowPreview(false)}
-        />
-      )}
     </div>
   )
 }
