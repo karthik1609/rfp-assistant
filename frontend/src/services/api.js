@@ -239,6 +239,31 @@ export async function previewResponses(preprocess, requirements, options = {}) {
   return await response.json();
 }
 
+export async function previewContext(preprocess, requirements, options = {}) {
+  const { use_rag = true, num_retrieval_chunks = 5, session_id = null } = options;
+
+  const response = await fetch(`${API_BASE}/preview-context`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      preprocess,
+      requirements,
+      use_rag,
+      num_retrieval_chunks,
+      session_id,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Preview context error ${response.status}: ${text.slice(0, 200)}`);
+  }
+
+  return await response.json();
+}
+
 export async function updateResponse(previewId, requirementId, responseText) {
   const response = await fetch(`${API_BASE}/update-response`, {
     method: "POST",

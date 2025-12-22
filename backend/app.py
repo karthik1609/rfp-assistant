@@ -1742,6 +1742,62 @@ async def preview_responses_endpoint(req: PreviewResponseRequest) -> Dict[str, A
         ) from exc
 
 
+class PreviewContextRequest(BaseModel):
+    preprocess: Dict[str, Any]
+    requirements: Dict[str, Any]
+    use_rag: bool = True
+    num_retrieval_chunks: int = 5
+    session_id: Optional[str] = None
+
+
+@app.post("/preview-context")
+@app.get("/preview-context")
+async def preview_context_endpoint(req: PreviewContextRequest | None = None) -> Dict[str, Any]:
+    # Allow GET for quick diagnostics (no body). If called with GET, return a small
+    # informational payload explaining how to call the POST endpoint.
+    if req is None:
+        return {
+            "message": "POST /preview-context expected. Use POST with JSON body {preprocess, requirements, use_rag, num_retrieval_chunks, session_id}.",
+            "note": "This GET response is a diagnostic fallback. Use POST to fetch RAG context snippets.",
+        }
+    """Return lightweight RAG retrieval snippets per requirement without running the response generator."""
+    logger.info("Preview context endpoint called")
+    try:
+        preprocess_result = PreprocessResult(**req.preprocess)
+        extraction_result = _extraction_from_preprocess(preprocess_result)
+        requirements_result = RequirementsResult(**req.requirements)
+
+        rag_system, knowledge_base = _setup_rag_and_kb(req.use_rag)
+
+        rag_contexts_by_req: Dict[str, List[Dict[str, Any]]] = {}
+        if rag_system:
+            for solution_req in requirements_result.solution_requirements:
+                qtext = solution_req.source_text or ""
+                try:
+                    results = rag_system.search(qtext, k=req.num_retrieval_chunks)
+                except Exception as e:
+                    logger.exception("RAG search failed for requirement %s: %s", solution_req.id, e)
+                    results = []
+                rag_contexts_by_req[solution_req.id] = results
+        else:
+            # No RAG available - return empty lists
+            for solution_req in requirements_result.solution_requirements:
+                rag_contexts_by_req[solution_req.id] = []
+
+        session_data = None
+        if req.session_id and req.session_id in _conversation_sessions:
+            session = _conversation_sessions[req.session_id]
+            session_data = session.model_dump()
+
+        return {
+            "rag_contexts_by_requirement": rag_contexts_by_req,
+            "session": session_data,
+        }
+    except Exception as exc:
+        logger.exception("Preview context failed: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Preview context failed: {str(exc)}") from exc
+
+
 class UpdateResponseRequest(BaseModel):
     preview_id: str
     requirement_id: str

@@ -135,6 +135,7 @@ The **“5. Response”** tab shows a textual indication that the DOCX/PDF was g
 ## Architecture
 
 - **Backend**: FastAPI (Python) with multiple specialized agents:
+
   - Text extraction pipeline
   - Preprocess agent
   - Requirements agent + structure detection
@@ -142,50 +143,24 @@ The **“5. Response”** tab shows a textual indication that the DOCX/PDF was g
   - Structured response agent
   - Question‑generation and Q&A session handling
 - **Frontend**: React + Vite, with:
+
   - Upload section
   - Pipeline progress tracker
   - Agent tabs (`OCR`, `Preprocess`, `Requirements`, `Build Query`, `Response`)
   - Fixed chat sidebar for the Q&A flow
 - **LLM**: **Azure OpenAI** via `AzureOpenAI` (no direct OpenAI usage):
+
   - `gpt-5-chat` (or your configured deployment) for all text‑only agents
 - **RAG System**: FAISS‑based vector search over documents in the `docs/` folder.
 - **Knowledge Base**: Hand‑crafted company knowledge (capabilities, case studies, accelerators) loaded from `backend/knowledge_base`.
-- **Local Memory Store**: Lightweight JSONL store at `backend/memory/data/memories.jsonl` that records anonymized snapshots of:
-  - Preprocess results
-  - Requirements extraction
-  - Build‑query metadata
-    This file is **ignored by git** and stays on the local machine or backend container only.
-
-  Quick local retrieval example
-
-  - The backend includes a simple local search API in `backend/memory/mem0_client.py`:
-    - `search_memories(query: str, max_results: int = 5, stage: Optional[str] = None)`
-    - It loads `backend/memory/data/memories.jsonl` and returns the top matching records using a small token-overlap score.
-  - Usage (from Python agent code):
-
-    ```py
-    from backend.memory.mem0_client import search_memories
-
-    matches = search_memories("unclear requirement about hosting", max_results=3, stage="requirements")
-    for m in matches:
-        # m contains the original record plus `score` and `snippet`
-        print(m["score"], m["snippet"])
-    ```
-
-  - Suggested integration: when an LLM or agent indicates low understanding for a requirement, call `search_memories()` and inject the `snippet` or full `messages` into the prompt as extra context before re-asking the model.
-
-## Setup
-
-See `docker-compose.yml` for deployment configuration. The system requires:
-
-- **Azure OpenAI**:
-  - `AZURE_OPENAI_API_KEY`
+- **Local Memory Store**: Lightweight JSONL store at `backend/memory/data/memories.jsonl` that records anonymized snapshots.
+- - `AZURE_OPENAI_API_KEY`
   - `AZURE_OPENAI_ENDPOINT`
   - (Optional) `AZURE_OPENAI_API_VERSION` and `AZURE_OPENAI_DEPLOYMENT_NAME`
 - **Optional vision OCR**:
+
   - `HF_TOKEN` for HuggingFace (used by the Qwen vision model)
 - **Python dependencies**: see `requirements.txt`
-- **Node.js dependencies**: see `package.json`
 
 # Output Location
 

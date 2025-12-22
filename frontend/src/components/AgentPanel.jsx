@@ -5,6 +5,7 @@ import StatusPill from './StatusPill'
 import OutputDisplay from './OutputDisplay'
 import Button from './Button'
 import ChatInterface from './ChatInterface'
+import PreviewBox from './PreviewBox'
 import { formatPreprocessOutput, formatRequirementsOutput } from '../utils/formatters'
 import './AgentPanel.css'
 
@@ -716,6 +717,12 @@ export default function AgentPanel({ agentId }) {
       
       {agentId === 'build-query' && pipelineData.buildQuery && (
         <>
+          <PreviewBox
+            preprocess={pipelineData.preprocess}
+            requirements={pipelineData.requirements}
+            buildQuery={pipelineData.buildQuery}
+            sessionId={chatSessionId}
+          />
           {!questionsGenerated && (
             <div className="accept-row" style={{ marginTop: '0.5rem' }}>
               <Button onClick={handleGenerateQuestionsOnce} disabled={status === 'processing'}>
