@@ -42,6 +42,11 @@ from backend.models import (
 )
 from backend.knowledge_base import FusionAIxKnowledgeBase
 from backend.knowledge_base.company_kb import CompanyKnowledgeBase
+from backend.memory.mem0_client import (
+    store_preprocess_result,
+    store_requirements_result,
+    store_build_query_result,
+)
 
 
 def _setup_rag_and_kb(use_rag: bool) -> tuple[Optional[RAGSystem], FusionAIxKnowledgeBase]:
@@ -396,6 +401,12 @@ async def run_preprocess(req: PreprocessRequest) -> Dict[str, Any]:
     
     response: Dict[str, Any] = preprocess_res.to_dict()
     response["ocr_text"] = req.ocr_text
+
+    try:
+        store_preprocess_result(req.ocr_text, preprocess_res.to_dict())
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning("Mem0 preprocess storage failed: %s", exc)
+
     return response
 
 
@@ -438,6 +449,12 @@ async def run_requirements(req: RequirementsRequest) -> Dict[str, Any]:
         len(result.solution_requirements),
         len(result.response_structure_requirements),
     )
+
+    try:
+        store_requirements_result(req.essential_text, result.to_dict())
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning("Mem0 requirements storage failed: %s", exc)
+
     return result.to_dict()
 
 
@@ -504,7 +521,14 @@ async def build_query_endpoint(req: BuildQueryRequest) -> Dict[str, Any]:
         extraction_result = _extraction_from_preprocess(preprocess_result)
         requirements_result = RequirementsResult(**req.requirements)
         query = build_query(extraction_result, requirements_result)
-        return query.model_dump()
+        payload = query.model_dump()
+
+        try:
+            store_build_query_result(req.preprocess.get("cleaned_text") or "", payload)
+        except Exception as exc:
+            logger.warning("Mem0 build query storage failed: %s", exc)
+
+        return payload
     except Exception as exc:
         logger.exception("Build query failed: %s", exc)
         raise HTTPException(
