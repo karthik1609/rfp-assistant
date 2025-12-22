@@ -126,7 +126,8 @@ def run_structured_response_agent(
     solution_reqs_parts = []
     for req in requirements_result.solution_requirements:
         req_summary = req.source_text[:150] + ("..." if len(req.source_text) > 150 else "")
-        solution_reqs_parts.append(f"- [{req.type.upper()}] {req_summary}")
+        # The requirement `type` field was removed; include the summary only.
+        solution_reqs_parts.append(f"- {req_summary}")
     solution_reqs_text = "\n".join(solution_reqs_parts)
     
     structure_desc = structure_detection.structure_description

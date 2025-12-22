@@ -30,7 +30,7 @@ EXAMPLES:
 - GOOD: One requirement = "The system must support integration with existing systems such as document management, email, identity management, and core line-of-business systems."
 - BAD: Four separate requirements (one per system type)
 
-For each requirement: id, type (mandatory/optional/unspecified), source_text (FULL original text verbatim), category.
+For each requirement: id, source_text (FULL original text verbatim), category.
 Note: source_text should be the complete, verbatim requirement text from the RFP. Do not create a normalized or rewritten version - use the original text exactly as it appears.
 
 Output JSON: solution_requirements, response_structure_requirements, notes."""
@@ -50,6 +50,21 @@ CRITICAL RULES:
 - Document formatting handled automatically - provide clean text content only
 - When Q&A context is provided, integrate the FULL information naturally throughout your response - don't just list it, weave it into a cohesive answer with all the details"""
 
+# Diagram guidance: allow the model to include one mermaid chart when it helps
+RESPONSE_SYSTEM_PROMPT += """
+
+DIAGRAM GUIDELINES:
+- If a diagram would clearly improve clarity or conciseness (for example: process flows, component interactions, timelines, or sequences), include exactly ONE Mermaid diagram in the response.
+- The diagram must be provided as a fenced code block with the language `mermaid`, e.g.:
+````mermaid
+graph LR
+  A --> B
+````
+- Place the diagram after the textual answer and include one short caption line immediately after the fenced block (plain text, one sentence). Example:
+Caption: High-level request flow from client to database.
+- If no diagram is needed, do not include any fenced code block. Only include at most one diagram per response.
+"""
+
 
 STRUCTURED_RESPONSE_SYSTEM_PROMPT = """You are an RFP response writer for fusionAIx. Generate a complete RFP response document following the EXACT structure specified in the RFP.
 
@@ -66,6 +81,21 @@ CRITICAL RULES:
 - Provide comprehensive responses that fully address the RFP requirements
 - When Q&A context is provided, integrate the FULL information naturally throughout relevant sections - don't just list it, weave it into a cohesive answer with all the details
 - Use the knowledge base and RAG context extensively - reference specific capabilities, case studies, and accelerators with concrete details"""
+
+# Diagram guidance for structured responses
+STRUCTURED_RESPONSE_SYSTEM_PROMPT += """
+
+DIAGRAM GUIDELINES:
+- If a diagram would clearly improve clarity for a section (process flows, architecture, timelines, sequences), you may include exactly ONE Mermaid diagram in the overall generated document.
+- Provide the diagram as a fenced code block with language `mermaid`, for example:
+````mermaid
+flowchart LR
+  A --> B
+````
+- Place the diagram where it best fits (for multi-section documents, include it in the most relevant section), and add one short caption line immediately after the fenced block. Example:
+Caption: High-level request flow from client to database.
+- If no diagram is needed, omit diagrams entirely. Only one diagram per generated document is allowed.
+"""
 
 
 QUALITY_SYSTEM_PROMPT = """You are an expert at assessing RFP response quality.

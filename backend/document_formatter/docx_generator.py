@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import re
+import httpx
+from backend.mermaid_renderer import render_mermaid_to_bytes
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -10,6 +12,37 @@ from datetime import datetime
 from backend.models import RequirementsResult, ExtractionResult
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_mermaid_labels(diagram: str) -> str:
+    """Sanitize Mermaid node labels to avoid parse errors in Kroki and mmdc.
+
+    This wraps label text that contains special characters (commas, parens,
+    slashes, colons) in double quotes when the label is inside square brackets
+    and not already quoted. Example:
+      A[Enterprise Systems (ERP, CRM)] -> A["Enterprise Systems (ERP, CRM)"]
+
+    The function intentionally keeps existing quoted labels untouched.
+    """
+    if not diagram:
+        return diagram
+
+    def _quote_label(match):
+        node = match.group(1)
+        label = match.group(2)
+        # If label already quoted, return as-is
+        if (label.startswith('"') and label.endswith('"')) or (label.startswith("'") and label.endswith("'")):
+            return match.group(0)
+        # If label contains characters likely to break parsers, quote it
+        if re.search(r'[(),:/\\\\]', label):
+            # Escape any existing double quotes inside label
+            safe = label.replace('"', '\\"')
+            return f"{node}[\"{safe}\"]"
+        return match.group(0)
+
+    # Replace patterns like A[...label...] but avoid nested brackets
+    result = re.sub(r"(\b[0-9A-Za-z_.$-]+)\[([^\]]+)\]", _quote_label, diagram)
+    return result
 
 try:
     from docx import Document
@@ -468,78 +501,192 @@ def _parse_markdown_to_docx(doc, text: str):
     current_table = None
     in_code_block = False
     code_block_lines = []
+    code_block_lang = None
     last_was_blank = False
     list_item_buffer = []
     
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
-        
-        # Handle code blocks
-        if stripped.startswith('```'):
-            if in_code_block:
-                # End code block
-                if code_block_lines:
+        # Detect unfenced Mermaid blocks: lines that begin with Mermaid diagram keywords
+        mermaid_start_pattern = re.compile(r'^(?:flowchart|graph|sequenceDiagram|classDiagram|gantt|stateDiagram|pie|erDiagram)\b', re.IGNORECASE)
+        if mermaid_start_pattern.match(stripped):
+            # Collect contiguous mermaid lines until a blank line or a Caption: line
+            block_lines = [line.rstrip('\n')]
+            j = i + 1
+            caption_text = None
+            while j < len(lines):
+                next_line = lines[j]
+                next_stripped = next_line.strip()
+                # Stop if blank line; allow Caption: line to be captured separately
+                if not next_stripped:
+                    break
+                if re.match(r'^Caption:\s*', next_stripped, flags=re.IGNORECASE):
+                    caption_text = re.sub(r'^Caption:\s*', '', next_stripped, flags=re.IGNORECASE).strip()
+                    j += 1
+                    break
+                # If another markdown delimiter or heading starts, stop
+                if next_stripped.startswith('```') or next_stripped.startswith('#'):
+                    break
+                block_lines.append(next_line.rstrip('\n'))
+                j += 1
+
+            block_text = '\n'.join(block_lines)
+            # Sanitize labels to avoid Kroki/mmdc parse errors (unquoted commas/paren etc.)
+            sanitized_block = _sanitize_mermaid_labels(block_text)
+
+            # Try to render same as fenced block handling
+            rendered = None
+            try:
+                rendered = render_mermaid_to_bytes(sanitized_block, fmt='png')
+            except FileNotFoundError:
+                logger.info('Local mmdc not found; will fall back to Kroki')
+            except Exception as e:
+                logger.exception('Local mmdc rendering failed: %s', e)
+
+            if rendered:
+                try:
+                    logger.info('Inserting locally rendered mermaid image into DOCX (unfenced)')
+                    img_stream = BytesIO(rendered)
+                    doc.add_picture(img_stream, width=Inches(5))
+                    if caption_text:
+                        cap_para = doc.add_paragraph()
+                        cap_run = cap_para.add_run(caption_text)
+                        cap_run.italic = True
+                        cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                except Exception as e:
+                    logger.warning('Failed to insert locally rendered mermaid image into docx (unfenced): %s', e)
+                    rendered = None
+
+            if not rendered:
+                # Kroki fallback
+                try:
+                    kroki_url = 'https://kroki.io/mermaid/png'
+                    resp = httpx.post(kroki_url, content=sanitized_block.encode('utf-8'), headers={"Content-Type": "text/plain"}, timeout=30.0)
+                    if resp.status_code == 200:
+                        img_bytes = resp.content
+                        try:
+                            img_stream = BytesIO(img_bytes)
+                            doc.add_picture(img_stream, width=Inches(5))
+                            if caption_text:
+                                cap_para = doc.add_paragraph()
+                                cap_run = cap_para.add_run(caption_text)
+                                cap_run.italic = True
+                                cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        except Exception as e:
+                            logger.warning('Failed to insert Kroki mermaid image into docx (unfenced): %s', e)
+                            para = doc.add_paragraph(style='Normal')
+                            para.style.font.name = 'Consolas'
+                            para.style.font.size = Pt(10)
+                            para.text = block_text
+                    else:
+                        logger.warning('Kroki returned status %s for mermaid render (unfenced)', resp.status_code)
+                        para = doc.add_paragraph(style='Normal')
+                        para.style.font.name = 'Consolas'
+                        para.style.font.size = Pt(10)
+                        para.text = block_text
+                except Exception as e:
+                    logger.exception('Failed to call Kroki for mermaid rendering (unfenced): %s', e)
                     para = doc.add_paragraph(style='Normal')
                     para.style.font.name = 'Consolas'
                     para.style.font.size = Pt(10)
-                    para.text = '\n'.join(code_block_lines)
+                    para.text = block_text
+
+            i = j
+            continue
+        
+        # Handle code blocks
+        if stripped.startswith('```'):
+            # Determine language if provided: ```lang
+            lang = stripped[3:].strip().lower()
+            if in_code_block:
+                # End code block
+                if code_block_lines:
+                    block_text = '\n'.join(code_block_lines)
+                    # Detect and strip an inline trailing caption if present (common LLM output quirk)
+                    caption_text = None
+                    m_caption = re.search(r"\n?\s*Caption:\s*(.+)\s*$", block_text, flags=re.IGNORECASE)
+                    if m_caption:
+                        caption_text = m_caption.group(1).strip()
+                        block_text = re.sub(r"\n?\s*Caption:\s*.+\s*$", "", block_text, flags=re.IGNORECASE)
+
+                    if code_block_lang == 'mermaid':
+                        # Prefer to render locally via mmdc (Mermaid CLI). If unavailable
+                        # or rendering fails, fall back to Kroki. If both fail, insert raw code.
+                        rendered = None
+                        # Sanitize fenced mermaid block before rendering
+                        sanitized_block = _sanitize_mermaid_labels(block_text)
+                        try:
+                            rendered = render_mermaid_to_bytes(sanitized_block, fmt='png')
+                        except FileNotFoundError:
+                            logger.info('Local mmdc not found; will fall back to Kroki')
+                        except Exception as e:
+                            logger.exception('Local mmdc rendering failed: %s', e)
+
+                        if rendered:
+                            try:
+                                logger.info('Inserting locally rendered mermaid image into DOCX')
+                                img_stream = BytesIO(rendered)
+                                doc.add_picture(img_stream, width=Inches(5))
+                                # Insert caption if present
+                                if caption_text:
+                                    cap_para = doc.add_paragraph()
+                                    cap_run = cap_para.add_run(caption_text)
+                                    cap_run.italic = True
+                                    cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            except Exception as e:
+                                logger.warning('Failed to insert locally rendered mermaid image into docx: %s', e)
+                                rendered = None
+
+                        if not rendered:
+                            # Try Kroki as a fallback
+                            try:
+                                kroki_url = 'https://kroki.io/mermaid/png'
+                                resp = httpx.post(kroki_url, content=sanitized_block.encode('utf-8'), headers={"Content-Type": "text/plain"}, timeout=30.0)
+                                if resp.status_code == 200:
+                                    logger.info('Kroki returned image bytes for mermaid block')
+                                    img_bytes = resp.content
+                                    try:
+                                        img_stream = BytesIO(img_bytes)
+                                        doc.add_picture(img_stream, width=Inches(5))
+                                        if caption_text:
+                                            cap_para = doc.add_paragraph()
+                                            cap_run = cap_para.add_run(caption_text)
+                                            cap_run.italic = True
+                                            cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                    except Exception as e:
+                                        logger.warning('Failed to insert Kroki mermaid image into docx: %s', e)
+                                        # Fall through to insert raw code
+                                        para = doc.add_paragraph(style='Normal')
+                                        para.style.font.name = 'Consolas'
+                                        para.style.font.size = Pt(10)
+                                        para.text = block_text
+                                else:
+                                    logger.warning('Kroki returned status %s for mermaid render', resp.status_code)
+                                    para = doc.add_paragraph(style='Normal')
+                                    para.style.font.name = 'Consolas'
+                                    para.style.font.size = Pt(10)
+                                    para.text = block_text
+                            except Exception as e:
+                                logger.exception('Failed to call Kroki for mermaid rendering: %s', e)
+                                para = doc.add_paragraph(style='Normal')
+                                para.style.font.name = 'Consolas'
+                                para.style.font.size = Pt(10)
+                                para.text = block_text
+                    else:
+                        para = doc.add_paragraph(style='Normal')
+                        para.style.font.name = 'Consolas'
+                        para.style.font.size = Pt(10)
+                        para.text = block_text
                 code_block_lines = []
                 in_code_block = False
+                code_block_lang = None
             else:
                 # Start code block
                 in_code_block = True
+                code_block_lang = lang or None
             i += 1
             continue
-        
-        if in_code_block:
-            code_block_lines.append(line)
-            i += 1
-            continue
-        
-        # Handle blank lines - only add one paragraph break max
-        if not stripped:
-            if in_table and current_table:
-                # Finalize table when we hit a blank line
-                finalize_table(current_table)
-                in_table = False
-                current_table = None
-            elif not last_was_blank:
-                # Only add paragraph if last wasn't blank (avoid gappy docs)
-                doc.add_paragraph()
-                last_was_blank = True
-            i += 1
-            continue
-        
-        last_was_blank = False
-        
-        # Handle tables
-        if '|' in stripped and not stripped.startswith('#'):
-            # Check if this is a table header (next line is separator)
-            if i + 1 < len(lines):
-                next_line = lines[i + 1].strip()
-                if re.match(r'^[\|\s:\-]+$', next_line):
-                    # Start new table
-                    cells = [cell.strip() for cell in stripped.split('|') if cell.strip()]
-                    if cells:
-                        current_table = _start_table(doc, cells)
-                        in_table = True
-                        i += 2
-                        continue
-            
-            # Check if we're in an existing table
-            if in_table and current_table:
-                cells = [cell.strip() for cell in stripped.split('|') if cell.strip()]
-                if cells:
-                    row = current_table.add_row()
-                    for col_idx, cell_text in enumerate(cells):
-                        if col_idx < len(row.cells):
-                            cell = row.cells[col_idx]
-                            cell.text = ""  # Clear first
-                            para = cell.paragraphs[0]
-                            _add_formatted_text_to_paragraph(para, cell_text)
-                i += 1
-                continue
         
         # If we were in a table, finalize it before moving on
         if in_table and current_table:

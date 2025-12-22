@@ -12,6 +12,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import httpx
+import re
+import asyncio
+
+from backend.mermaid_renderer import render_mermaid_to_bytes
 
 from backend.pipeline.text_extraction import extract_text_from_file
 from backend.agents.preprocess_agent import run_preprocess_agent
@@ -165,8 +170,6 @@ def validate_before_generation(
             errors.append(f"Solution requirement {idx} ({req.id}) missing source_text")
         if not req.category or not req.category.strip():
             errors.append(f"Solution requirement {idx} ({req.id}) missing category")
-        if req.type not in ["mandatory", "optional", "unspecified"]:
-            errors.append(f"Solution requirement {idx} ({req.id}) has invalid type: {req.type}")
         if len(req.source_text) < 10:
             errors.append(f"Solution requirement {idx} ({req.id}) source_text too short (likely incomplete)")
     
@@ -365,6 +368,11 @@ class PreprocessRequest(BaseModel):
     ocr_text: str
 
 
+class RenderRequest(BaseModel):
+    diagram: str
+    format: str = 'png'  # png or svg
+
+
 @app.post("/run-preprocess")
 async def run_preprocess(req: PreprocessRequest) -> Dict[str, Any]:
     request_id = str(uuid.uuid4())
@@ -408,6 +416,83 @@ async def run_preprocess(req: PreprocessRequest) -> Dict[str, Any]:
         logger.warning("Mem0 preprocess storage failed: %s", exc)
 
     return response
+
+
+@app.post('/render/mermaid')
+async def render_mermaid(req: RenderRequest):
+    """Render mermaid diagram via Kroki and return image bytes.
+
+    This proxies the diagram text to kroki.io; set `format` to 'png' or 'svg'.
+    """
+    diagram = (req.diagram or "").strip()
+    fmt = (req.format or 'png').lower()
+    if not diagram:
+        raise HTTPException(status_code=400, detail='No diagram provided')
+    if fmt not in ('png', 'svg'):
+        raise HTTPException(status_code=400, detail='Invalid format: choose png or svg')
+
+    # Log the raw diagram value we received (escaped newlines) to help debug
+    try:
+        logger.info('Received raw diagram (escaped newlines): %s', diagram.replace('\n','\\n')[:1000])
+    except Exception:
+        logger.debug('Failed to log raw diagram')
+
+    # If the diagram text contains a trailing "Caption: ..." line (LLM may add it),
+    # strip it before sending to renderers. Keep the caption to return in a header.
+    caption = None
+    m = re.search(r'^(?P<diag>.*?)(?:\n+Caption:\s*(?P<cap>.*))?$', diagram, flags=re.I | re.S)
+    if m:
+        diagram_text = (m.group('diag') or '').rstrip()
+        caption = (m.group('cap') or '').strip() or None
+        if caption:
+            logger.info('Detected and stripped caption from diagram for rendering: %s', caption)
+    # Log a sanitized preview of the diagram_text for debugging (show newlines as \n)
+    try:
+        preview = diagram_text.replace('\n', '\\n')[:1000]
+        logger.info('Diagram text preview (escaped newlines): %s', preview)
+        logger.info('Diagram text line count: %d', len(diagram_text.splitlines()))
+    except Exception:
+        logger.debug('Failed to produce diagram preview for logs')
+    
+    # Try local Mermaid CLI (mmdc) first for enterprise/local rendering.
+    try:
+        loop = asyncio.get_running_loop()
+        logger.info('Attempting local mmdc rendering for diagram (fmt=%s)', fmt)
+        data = await loop.run_in_executor(None, lambda: render_mermaid_to_bytes(diagram_text, fmt))
+        media_type = 'image/png' if fmt == 'png' else 'image/svg+xml'
+        logger.info('Local mmdc rendering succeeded; returning image bytes')
+        headers = {"X-Diagram-Renderer": "local-mmdc"}
+        if caption:
+            headers["X-Diagram-Caption"] = caption
+        return Response(content=data, media_type=media_type, headers=headers)
+    except FileNotFoundError:
+        # mmdc not installed - fall back to Kroki
+        logger.info('mmdc not found locally; falling back to Kroki')
+    except Exception as e:
+        # If local rendering failed, log and fall back to Kroki
+        logger.exception('Local mmdc rendering failed: %s', e)
+
+    # Fallback: proxy to kroki.io
+    kroki_url = f'https://kroki.io/mermaid/{fmt}'
+
+    try:
+        logger.info('Requesting Kroki rendering as fallback (fmt=%s)', fmt)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(kroki_url, content=diagram_text.encode('utf-8'), headers={"Content-Type": "text/plain"})
+    except Exception as e:
+        logger.exception('Kroki request failed: %s', e)
+        raise HTTPException(status_code=500, detail='Failed to contact Kroki rendering service')
+
+    if resp.status_code != 200:
+        logger.error('Kroki returned status %s: %s', resp.status_code, resp.text[:200])
+        raise HTTPException(status_code=502, detail='Kroki rendering failed')
+
+    media_type = 'image/png' if fmt == 'png' else 'image/svg+xml'
+    logger.info('Kroki rendering succeeded; returning image bytes')
+    headers = {"X-Diagram-Renderer": "kroki"}
+    if caption:
+        headers["X-Diagram-Caption"] = caption
+    return Response(content=resp.content, media_type=media_type, headers=headers)
 
 
 class RequirementsRequest(BaseModel):
@@ -967,7 +1052,7 @@ async def _generate_per_requirement_response(
             combined_parts.append("RESPONSE STRUCTURE REQUIREMENTS")
             combined_parts.append("-" * 80)
             for resp_req in requirements_result.response_structure_requirements:
-                combined_parts.append(f"[{resp_req.type.upper()}] {resp_req.source_text}")
+                combined_parts.append(resp_req.source_text)
                 combined_parts.append("")
             combined_parts.append("")
         
@@ -1128,7 +1213,7 @@ async def _generate_per_requirement_response(
         combined_parts.append("RESPONSE STRUCTURE REQUIREMENTS")
         combined_parts.append("-" * 80)
         for resp_req in requirements_result.response_structure_requirements:
-            combined_parts.append(f"[{resp_req.type.upper()}] {resp_req.source_text}")
+            combined_parts.append(resp_req.source_text)
             combined_parts.append("")
         combined_parts.append("")
     

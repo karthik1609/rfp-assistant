@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import './ResponsePreview.css'
+import MermaidChart from './MermaidChart'
 
 export default function ResponsePreview({ responses, onEdit, onExport, onClose }) {
   const [editingId, setEditingId] = useState(null)
@@ -131,11 +132,11 @@ export default function ResponsePreview({ responses, onEdit, onExport, onClose }
                       <div className="diff-view">
                         <div className="diff-original">
                           <h4>Original:</h4>
-                          <pre>{resp.response}</pre>
+                          {renderResponseWithMermaid(resp.response)}
                         </div>
                         <div className="diff-edited">
                           <h4>Edited:</h4>
-                          <pre>{editedText}</pre>
+                          {renderResponseWithMermaid(editedText)}
                         </div>
                       </div>
                     ) : isEditing ? (
@@ -153,10 +154,10 @@ export default function ResponsePreview({ responses, onEdit, onExport, onClose }
                         {hasEdits ? (
                           <>
                             <span className="edited-badge">Edited</span>
-                            <pre>{editedText}</pre>
+                            {renderResponseWithMermaid(editedText)}
                           </>
                         ) : (
-                          <pre>{resp.response}</pre>
+                          renderResponseWithMermaid(resp.response)
                         )}
                       </div>
                     )}
@@ -173,5 +174,82 @@ export default function ResponsePreview({ responses, onEdit, onExport, onClose }
       </div>
     </div>
   )
+}
+
+function splitResponseWithMermaid(text) {
+  const parts = []
+  if (!text) return parts
+
+  const fencedRe = /```mermaid\n([\s\S]*?)```/g
+  let lastIndex = 0
+  let m
+  const spans = []
+  while ((m = fencedRe.exec(text)) !== null) {
+    spans.push({ start: m.index, end: m.index + m[0].length, code: m[1], caption: null })
+  }
+
+  if (spans.length === 0) {
+    const standaloneRe = /(^|\n)\s*((?:flowchart|graph|sequenceDiagram|gantt|classDiagram|stateDiagram|pie)[\s\S]*?)(?:\nCaption:\s*(.*?))?(?=\n\n|$)/im
+    let remaining = text
+    let baseOffset = 0
+    while (true) {
+      const sm = remaining.match(standaloneRe)
+      if (!sm) break
+      const matchIndex = sm.index || 0
+      const pre = remaining.slice(0, matchIndex)
+      if (pre && pre.trim()) parts.push({ type: 'text', content: pre })
+      let diagramCode = sm[2] || ''
+      const caption = sm[3] || null
+
+      const lines = diagramCode.split('\n')
+      let minIndent = Infinity
+      for (const ln of lines) {
+        if (ln.trim() === '') continue
+        const m = ln.match(/^\s*/)
+        if (m) minIndent = Math.min(minIndent, m[0].length)
+      }
+      if (!isFinite(minIndent) || minIndent === 0) {
+      } else {
+        for (let i = 0; i < lines.length; i++) {
+          lines[i] = lines[i].slice(minIndent)
+        }
+        diagramCode = lines.join('\n')
+      }
+
+      parts.push({ type: 'mermaid', content: diagramCode.trim(), caption })
+      const advance = matchIndex + (sm[0] ? sm[0].length : 0)
+      remaining = remaining.slice(advance)
+      baseOffset += advance
+    }
+    if (remaining && remaining.trim()) parts.push({ type: 'text', content: remaining })
+    return parts
+  }
+
+  // If there are fenced spans, build parts around them
+  let cursor = 0
+  for (const span of spans) {
+    if (span.start > cursor) {
+      parts.push({ type: 'text', content: text.slice(cursor, span.start) })
+    }
+    parts.push({ type: 'mermaid', content: span.code.trim(), caption: null })
+    cursor = span.end
+  }
+  if (cursor < text.length) parts.push({ type: 'text', content: text.slice(cursor) })
+  return parts
+}
+
+function renderResponseWithMermaid(text) {
+  const parts = splitResponseWithMermaid(text)
+  if (!parts || parts.length === 0) return <pre>{text}</pre>
+
+  return parts.map((p, i) => {
+    if (p.type === 'text') return <pre key={i}>{p.content}</pre>
+    return (
+      <div key={i} className="mermaid-wrapper">
+        <MermaidChart code={p.content} className="mermaid-chart" />
+        {p.caption ? <div className="mermaid-caption">{p.caption}</div> : null}
+      </div>
+    )
+  })
 }
 

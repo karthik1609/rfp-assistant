@@ -43,12 +43,9 @@ class PreprocessResult(BaseModel):
 
 class RequirementItem(BaseModel):
     id: str = Field(description="Machine-friendly identifier (e.g., 'SOL-ARCH-01')")
-    type: str = Field(
-        default="unspecified",
-        description="Requirement type: 'mandatory', 'optional', or 'unspecified'",
-    )
     source_text: str = Field(description="Complete original text from the RFP document")
     category: str = Field(description="Category tag (e.g., 'Architecture', 'Security', 'SLA')")
+    model_config = {"extra": "ignore"}
 
 
 class StructureDetectionResult(BaseModel):

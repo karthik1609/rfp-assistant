@@ -66,7 +66,6 @@ def get_next_critical_question(
             {
                 "id": req.id,
                 "text": req.source_text,
-                "type": req.type,
                 "rag_context": rag_ctx or "[No RAG info]",
             }
         )
@@ -448,7 +447,6 @@ def analyze_build_query_for_questions(
 
 REQUIREMENT TO ANALYZE:
 ID: {req.id}
-Type: {req.type}
 Category: {req.category}
 Requirement Text: {req.source_text}
 
@@ -461,22 +459,22 @@ RAG CONTEXT (PRIOR RFP ANSWERS - already available - DO NOT ask about):
 STRICT RULES - READ CAREFULLY:
 
 1. **BE EXTREMELY SELECTIVE** - Only ask questions where:
-   - The answer CANNOT be found in the knowledge base or RAG context above
-   - Without this info, the response would be FACTUALLY WRONG or IMPOSSIBLE to write
-   - A reasonable LLM response CANNOT be generated without this specific vendor input
+    - The answer CANNOT be found in the knowledge base or RAG context above
+    - Without this info, the response would be FACTUALLY WRONG or IMPOSSIBLE to write
+    - A reasonable LLM response CANNOT be generated without this specific vendor input
 
 2. **DO NOT ASK about:**
-   - Generic capabilities (assume standard enterprise-grade solution)
-   - Technical details that can be inferred from standard practice
-   - Information that appears in the RAG context above
-   - Nice-to-have details that would only slightly improve the response
-   - Anything where a reasonable default answer could work
+    - Generic capabilities (assume standard enterprise-grade solution)
+    - Technical details that can be inferred from standard practice
+    - Information that appears in the RAG context above
+    - Nice-to-have details that would only slightly improve the response
+    - Anything where a reasonable default answer could work
 
 3. **ONLY ASK about:**
-   - Specific numbers the RFP explicitly requests (team sizes, timelines, pricing)
-   - Vendor-specific case studies or references if explicitly required
-   - Unique commitments only the vendor can make
-   - Information that if wrong would be embarrassing or disqualifying
+    - Specific numbers the RFP explicitly requests (team sizes, timelines, pricing)
+    - Vendor-specific case studies or references if explicitly required
+    - Unique commitments only the vendor can make
+    - Information that if wrong would be embarrassing or disqualifying
 
 4. **If in doubt, DON'T ASK** - It's better to generate a reasonable response than to ask too many questions.
 
