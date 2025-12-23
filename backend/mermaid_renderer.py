@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -54,23 +55,45 @@ def render_mermaid_to_bytes(diagram: str, fmt: str = "png", timeout: int = 30) -
             euid = None
 
         force_no_sandbox = os.environ.get("MERMAID_CLI_NO_SANDBOX", "").lower() in ("1", "true", "yes")
-        if force_no_sandbox or (euid is not None and euid == 0):
-            logger.info("Adding --no-sandbox flags for mmdc (root or MERMAID_CLI_NO_SANDBOX)")
-            cmd += ["--no-sandbox", "--disable-setuid-sandbox"]
 
-        logger.debug("Running mmdc: %s", " ".join(cmd))
+        needs_no_sandbox = force_no_sandbox or (euid is not None and euid == 0)
+
+        puppeteer_cfg_path = None
+        if needs_no_sandbox:
+            logger.info("Mermaid rendering requested no-sandbox (root or MERMAID_CLI_NO_SANDBOX). Creating Puppeteer config file.")
+            puppeteer_cfg_path = Path(tmpdir) / "puppeteer-config.json"
+            puppeteer_cfg = {"args": ["--no-sandbox", "--disable-setuid-sandbox"]}
+            puppeteer_cfg_path.write_text(json.dumps(puppeteer_cfg), encoding="utf-8")
+
+        logger.debug("Running mmdc base command: %s", " ".join(cmd))
 
 
-        try:
-            proc = subprocess.run(cmd, capture_output=True, check=False, timeout=timeout)
-        except subprocess.TimeoutExpired as e:
-            logger.exception("mmdc timed out: %s", e)
-            raise RuntimeError(f"mmdc timed out after {timeout}s") from e
+        def _run(cmd_to_run):
+            try:
+                p = subprocess.run(cmd_to_run, capture_output=True, check=False, timeout=timeout)
+            except subprocess.TimeoutExpired as e:
+                logger.exception("mmdc timed out: %s", e)
+                raise RuntimeError(f"mmdc timed out after {timeout}s") from e
+            out = p.stdout.decode("utf-8", errors="replace") if p.stdout else ""
+            err = p.stderr.decode("utf-8", errors="replace") if p.stderr else ""
+            return p.returncode, out, err
 
-        stdout = proc.stdout.decode("utf-8", errors="replace") if proc.stdout else ""
-        stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
-        if proc.returncode != 0:
-            logger.error("mmdc failed (code=%s). stdout: %s stderr: %s", proc.returncode, stdout[:200], stderr[:200])
+        if puppeteer_cfg_path:
+            cmd_with_cfg = cmd + ["--puppeteerConfigFile", str(puppeteer_cfg_path)]
+            returncode, stdout, stderr = _run(cmd_with_cfg)
+
+            if returncode != 0 and ("unknown option" in (stderr or "").lower() or "unrecognized option" in (stderr or "").lower()):
+                logger.info("mmdc did not recognize --puppeteerConfigFile; retrying with -p")
+                cmd_with_cfg = cmd + ["-p", str(puppeteer_cfg_path)]
+                returncode, stdout, stderr = _run(cmd_with_cfg)
+
+            if returncode != 0 and euid is not None and euid == 0:
+                logger.error("mmdc with Puppeteer config failed while running as root; not retrying without config to avoid Chromium launch failure.")
+        else:
+            returncode, stdout, stderr = _run(cmd)
+
+        if returncode != 0:
+            logger.error("mmdc failed (code=%s). stdout: %s stderr: %s", returncode, stdout[:200], stderr[:200])
             raise RuntimeError(f"mmdc rendering failed: {stderr or stdout}")
         else:
             logger.info("mmdc completed successfully; stdout: %s", stdout[:200])
