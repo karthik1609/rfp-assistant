@@ -688,15 +688,50 @@ def _parse_markdown_to_docx(doc, text: str):
             i += 1
             continue
         
-        # If we were in a table, finalize it before moving on
+        table_header_pattern = re.compile(r"^\s*\|.*\|\s*$")
+        table_sep_pattern = re.compile(r"^\s*\|?\s*[:\-]+(?:\s*\|\s*[:\-]+)+\s*\|?\s*$")
+        if i + 1 < len(lines) and table_header_pattern.match(line) and table_sep_pattern.match(lines[i + 1].strip()):
+            header_line = line.strip().strip('|')
+            header_cells = [h.strip() for h in re.split(r'\s*\|\s*', header_line)]
+            try:
+                current_table = _start_table(doc, header_cells)
+                in_table = True
+            except Exception as e:
+                logger.warning("Failed to start table: %s", e)
+                in_table = False
+                current_table = None
+
+            j = i + 2
+            while j < len(lines):
+                row_line = lines[j].strip()
+                if not row_line or not row_line.startswith('|'):
+                    break
+                row_cells = [c.strip() for c in re.split(r'\s*\|\s*', row_line.strip().strip('|'))]
+                try:
+                    row = current_table.add_row()
+                    for col_idx, cell_text in enumerate(row_cells[: len(header_cells) ]):
+                        try:
+                            cell = row.cells[col_idx]
+                            cell.text = _clean_markdown_text(cell_text)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.debug("Failed to add table row: %s", e)
+                j += 1
+
+            if in_table and current_table:
+                finalize_table(current_table)
+            in_table = False
+            current_table = None
+            i = j
+            continue
+
         if in_table and current_table:
             finalize_table(current_table)
             in_table = False
             current_table = None
         
-        # Handle list items (including multi-line)
         if stripped.startswith('- ') or stripped.startswith('* ') or re.match(r'^\d+\.\s', stripped):
-            # Start or continue list item
             if stripped.startswith('- ') or stripped.startswith('* '):
                 content = stripped[2:].strip()
                 is_bullet = True
@@ -704,11 +739,9 @@ def _parse_markdown_to_docx(doc, text: str):
                 content = re.sub(r'^\d+\.\s', '', stripped).strip()
                 is_bullet = False
             
-            # Check if next line continues this list item (not a new list item and not blank)
             if i + 1 < len(lines):
                 next_line = lines[i + 1]
                 next_stripped = next_line.strip()
-                # If next line is not a list marker and not blank, it's a continuation
                 if (next_stripped and 
                     not next_stripped.startswith('- ') and 
                     not next_stripped.startswith('* ') and 
@@ -716,7 +749,6 @@ def _parse_markdown_to_docx(doc, text: str):
                     list_item_buffer.append(content)
                     list_item_buffer.append(next_stripped)
                     i += 2
-                    # Continue collecting until we hit a new list item or blank line
                     while i < len(lines):
                         cont_line = lines[i]
                         cont_stripped = cont_line.strip()
