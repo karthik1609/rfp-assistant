@@ -18,10 +18,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 STORE_PATH = DATA_DIR / "memories.jsonl"
 EMBED_CACHE_PATH = DATA_DIR / "embeddings.jsonl"
 
-# Retrieval method: 'token' (default) or 'embeddings'
 RETRIEVAL_METHOD = os.environ.get("MEM0_RETRIEVAL_METHOD", "token").lower()
-# Embedding model name (used with HF/Azure/OpenAI clients)
-# Prefer using the same embedding model as the RAG system when available.
 _default_embedding = os.environ.get("MEM0_EMBEDDING_MODEL")
 if not _default_embedding:
     try:
@@ -255,13 +252,11 @@ def search_memories(query: str, max_results: int = 5, stage: Optional[str] = Non
                 try:
                     record = json.loads(line)
                 except Exception:
-                    # skip malformed lines
                     continue
 
                 if stage and record.get("stage") != stage:
                     continue
 
-                # build searchable text from messages and metadata
                 parts: List[str] = []
                 for m in record.get("messages", []) or []:
                     parts.append(str(m.get("content") or ""))
@@ -276,29 +271,22 @@ def search_memories(query: str, max_results: int = 5, stage: Optional[str] = Non
                 if not doc_tokens:
                     continue
 
-                # Choose retrieval method
                 if RETRIEVAL_METHOD == "embeddings":
-                    # We'll compute embeddings later in a second pass; collect candidate info now
                     out = dict(record)
                     out["_doc_text"] = doc_text
                     results.append(out)
                 else:
-                    # simple token-overlap score (counts occurrences)
                     score = 0
                     for qt in q_tokens:
-                        # number of occurrences of token in doc
                         occ = doc_tokens.count(qt)
                         if occ:
                             score += occ
 
-                    # normalize by document length to avoid bias towards long records
                     denom = max(1, len(doc_tokens))
                     normalized = score / denom
                     if normalized <= 0:
-                        # keep low scores out to reduce noise
                         continue
 
-                    # generate a short snippet around the first matching token
                     snippet = ""
                     first_pos = None
                     for i, t in enumerate(doc_tokens):
@@ -319,7 +307,6 @@ def search_memories(query: str, max_results: int = 5, stage: Optional[str] = Non
         logger.warning("Failed to read/search memories file: %s", exc)
         return []
 
-    # If using embeddings, compute embeddings for query and candidate docs
     if RETRIEVAL_METHOD == "embeddings" and results:
         try:
             q_emb = _get_embedding(query)
@@ -347,11 +334,8 @@ def search_memories(query: str, max_results: int = 5, stage: Optional[str] = Non
         except Exception as e:  # pragma: no cover - defensive
             logger.warning("Embeddings retrieval failed, falling back to token matches: %s", e)
 
-    # sort and return top results (token overlap path)
-    # sort and return top results (token overlap path)
     results.sort(key=lambda r: r.get("score", 0), reverse=True)
     logger.info("Mem0 token retrieval: %d matches found, returning top %d", len(results), min(max_results, len(results)))
-    # log top results at debug level
     for r in results[:min(5, len(results))]:
         try:
             logger.debug("Mem0 match: user_id=%s score=%.4f snippet=%s", (r.get("user_id") or "<no-user>")[:12], r.get("score", 0.0), (r.get("snippet") or "")[:200])
@@ -371,10 +355,6 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
 
 
 def _get_embedding(text: str) -> List[float]:
-    """Compute an embedding for `text` using the configured LLM client.
-
-    Prefers HF client when `HF_TOKEN` is set, otherwise Azure OpenAI when AZURE_* env vars are present.
-    """
     from backend.llm.client import get_hf_client, get_azure_client
 
     if not text:

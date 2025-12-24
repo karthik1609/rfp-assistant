@@ -258,7 +258,6 @@ def run_structured_response_agent(
     user_tokens = len(user_prompt) // 4
     total_input_tokens = system_tokens + user_tokens + 100
     
-    # Log token breakdown at debug level to avoid noisy logs in production
     logger.debug(
         "Token breakdown - system: %d, user: %d, total: %d | "
         "Structure desc: %d chars, Solution reqs: %d chars, KB: %d chars, RAG: %d chars, Q&A: %d chars",
@@ -276,7 +275,6 @@ def run_structured_response_agent(
         num_sections = len(structure_detection.detected_sections)
         num_requirements = len(requirements_result.solution_requirements)
         estimated_output_tokens = max(12000, num_sections * 2500 + num_requirements * 200)
-        # Model supports max 16384 completion tokens, so cap at that
         max_tokens = min(estimated_output_tokens, 16384)
         logger.info("Calculated max_tokens: %d (sections=%d, requirements=%d, estimated_output=%d)", 
                    max_tokens, num_sections, num_requirements, estimated_output_tokens)

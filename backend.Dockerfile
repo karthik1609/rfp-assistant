@@ -13,7 +13,12 @@ RUN apt-get update && \
         libpangoft2-1.0-0 \
         libfontconfig1 \
         libcairo2 \
+        libcairo2-dev \
+        libpango1.0-dev \
         libgdk-pixbuf-2.0-0 \
+        libgdk-pixbuf-xlib-2.0-dev \
+        libffi-dev \
+        pkg-config \
         shared-mime-info \
         libgobject-2.0-0 \
         ca-certificates \
@@ -30,12 +35,8 @@ RUN apt-get update && \
         fonts-liberation && \
     rm -rf /var/lib/apt/lists/*
 
-# Install a headless Chromium package so mermaid-cli (which uses Puppeteer)
-# can spawn a browser inside the container. This avoids the "Could not find
-# Chromium" runtime error from Puppeteer.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends chromium && \
-    rm -rf /var/lib/apt/lists/* || true
+# (Removed) Headless Chromium installation — no longer required; Mermaid
+# rendering is performed via an external MCP service (OpenAI Responses API).
 
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
@@ -43,21 +44,11 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY backend backend
 COPY docs ./docs
 COPY image.png image.png
-# Copy logo files for document generation (same as used in frontend)
 COPY frontend/src/assets/logo-transparent.png ./assets/logo-transparent.png
 COPY frontend/src/assets/logo.png ./assets/logo.png
 
 EXPOSE 8001
 
-# Install Node.js (18.x) and mermaid-cli (mmdc) so the backend can render Mermaid diagrams locally.
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-    apt-get update && apt-get install -y --no-install-recommends nodejs && \
-    npm install -g @mermaid-js/mermaid-cli@10.3.0 && \
-    rm -rf /var/lib/apt/lists/* /root/.npm /root/.cache
-
-ENV MERMAID_CLI_PATH=/usr/bin/mmdc
-# Point Puppeteer / mermaid-cli at the system Chromium executable when possible
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8001"]
 

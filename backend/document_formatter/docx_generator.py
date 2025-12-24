@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import re
 import httpx
+import os
+import tempfile
 from backend.mermaid_renderer import render_mermaid_to_bytes
 from io import BytesIO
 from pathlib import Path
@@ -12,68 +14,54 @@ from datetime import datetime
 from backend.models import RequirementsResult, ExtractionResult
 
 logger = logging.getLogger(__name__)
-
-
-def _sanitize_mermaid_labels(diagram: str) -> str:
-    """Sanitize Mermaid node labels to avoid parse errors in Kroki and mmdc.
-
-    This wraps label text that contains special characters (commas, parens,
-    slashes, colons) in double quotes when the label is inside square brackets
-    and not already quoted. Example:
-      A[Enterprise Systems (ERP, CRM)] -> A["Enterprise Systems (ERP, CRM)"]
-
-    The function intentionally keeps existing quoted labels untouched.
-    """
-    if not diagram:
-        return diagram
-
-    def _quote_label(match):
-        node = match.group(1)
-        label = match.group(2)
-        # If label already quoted, return as-is
-        if (label.startswith('"') and label.endswith('"')) or (label.startswith("'") and label.endswith("'")):
-            return match.group(0)
-        # If label contains characters likely to break parsers, quote it
-        if re.search(r'[(),:/\\\\]', label):
-            # Escape any existing double quotes inside label
-            safe = label.replace('"', '\\"')
-            return f"{node}[\"{safe}\"]"
-        return match.group(0)
-
-    # Replace patterns like A[...label...] but avoid nested brackets
-    result = re.sub(r"(\b[0-9A-Za-z_.$-]+)\[([^\]]+)\]", _quote_label, diagram)
-    return result
-
 try:
     from docx import Document
-    from docx.shared import Inches, Pt, RGBColor
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.enum.section import WD_SECTION_START
-    from docx.oxml.ns import qn
+    from docx.shared import Pt, Inches, RGBColor
     from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.enum.section import WD_SECTION_START
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
     DOCX_AVAILABLE = True
-except ImportError:
+except Exception:
     DOCX_AVAILABLE = False
-    logger.warning("python-docx not available. DOCX export will not work.")
+    logger.warning("python-docx not available. DOCX generation will be disabled.")
 
 try:
     from PIL import Image
     PIL_AVAILABLE = True
-except ImportError:
+except Exception:
     PIL_AVAILABLE = False
-    logger.warning("PIL/Pillow not available. Logo may not display correctly.")
+    logger.warning("Pillow (PIL) not available. Image validation will be disabled.")
+
+
+def _sanitize_mermaid_labels(diagram: str) -> str:
+    if not diagram:
+        return diagram
+    # Normalize smart quotes and stray whitespace that can break renderers
+    return (
+        diagram.replace('“', '"')
+        .replace('”', '"')
+        .replace('‘', "'")
+        .replace('’', "'")
+        .strip()
+    )
+
+
+try:
+    import cairosvg
+    CAIROS_AVAILABLE = True
+except Exception:
+    CAIROS_AVAILABLE = False
+    logger.warning("cairosvg not available. SVG->PNG conversion will be disabled.")
 
 
 def clear_paragraph(paragraph):
-    """Clear all runs from a paragraph by removing XML children."""
     p = paragraph._p
     for child in list(p):
         p.remove(child)
 
 
 def setup_styles(doc):
-    """Configure document styles for clean, professional output."""
-    # Normal / Body text style
     normal = doc.styles["Normal"]
     normal.font.name = "Calibri"
     normal.font.size = Pt(11)
@@ -82,7 +70,6 @@ def setup_styles(doc):
     pf.space_after = Pt(6)
     pf.line_spacing = 1.15
     
-    # Heading styles
     for level in (1, 2, 3, 4):
         try:
             h = doc.styles[f"Heading {level}"]
@@ -111,21 +98,17 @@ def setup_page_formatting(doc, start_page_number: int = 1):
     section.left_margin = Inches(1)
     section.right_margin = Inches(1)
     
-    # Set starting page number (for sections after front page and TOC)
     if start_page_number > 1:
         sect_pr = section._sectPr
         pg_num_type = OxmlElement('w:pgNumType')
         pg_num_type.set(qn('w:start'), str(start_page_number))
         sect_pr.append(pg_num_type)
     
-    # Add page number to footer
     footer = section.footer
-    # Ensure footer has at least one paragraph
     if len(footer.paragraphs) == 0:
         p = footer.add_paragraph()
     else:
         p = footer.paragraphs[0]
-        # Clear existing content if any
         p.clear()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = p.add_run()
@@ -135,21 +118,15 @@ def setup_page_formatting(doc, start_page_number: int = 1):
 
 
 def add_modern_front_page(doc, title: str, project_root: Optional[Path] = None):
-    """Create a modern, professional front page with logo and title."""
-    # Find logo path - try multiple locations (same path as used in frontend Header.jsx)
     if project_root is None:
         project_root = Path(__file__).parent.parent.parent
     
     logo_path = None
-    # Try multiple possible logo locations (prioritize the same path as frontend)
     possible_logo_paths = [
-        # Same path as frontend/src/components/Header.jsx uses
         project_root / "frontend" / "src" / "assets" / "logo-transparent.png",
         project_root / "frontend" / "src" / "assets" / "logo.png",
-        # Docker/backend assets folder (copied during build)
         project_root / "assets" / "logo-transparent.png",
         project_root / "assets" / "logo.png",
-        # Fallback locations
         project_root / "backend" / "assets" / "logo-transparent.png",
         project_root / "backend" / "assets" / "logo.png",
     ]
@@ -163,25 +140,20 @@ def add_modern_front_page(doc, title: str, project_root: Optional[Path] = None):
     if logo_path is None:
         logger.warning(f"Logo not found. Tried paths: {[str(p) for p in possible_logo_paths]}")
     
-    # Add spacing at top
     for _ in range(2):
         doc.add_paragraph()
     
-    # Add logo if available
     if logo_path and logo_path.exists():
         try:
             logo_para = doc.add_paragraph()
             logo_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
             
-            # Add logo with appropriate size
             run = logo_para.add_run()
             if PIL_AVAILABLE:
-                # Get image dimensions to maintain aspect ratio
                 try:
                     img = Image.open(logo_path)
                     width, height = img.size
                     aspect_ratio = width / height
-                    # Set height to 1.5 inches, calculate width
                     logo_height = Inches(1.5)
                     logo_width = Inches(1.5 * aspect_ratio)
                     logger.info(f"Logo dimensions: {width}x{height}, display size: {logo_width} x {logo_height}")
@@ -196,7 +168,6 @@ def add_modern_front_page(doc, title: str, project_root: Optional[Path] = None):
             run.add_picture(str(logo_path), width=logo_width, height=logo_height)
             logger.info(f"Successfully added logo to front page")
             
-            # Add spacing after logo
             doc.add_paragraph()
             doc.add_paragraph()
         except Exception as e:
@@ -204,8 +175,6 @@ def add_modern_front_page(doc, title: str, project_root: Optional[Path] = None):
     else:
         logger.warning("Logo not found or not accessible, skipping logo on front page")
     
-    # Add title with modern styling (handle long titles with word wrap)
-    # Adjust font size based on title length
     title_length = len(title)
     if title_length > 80:
         font_size = Pt(24)
@@ -219,55 +188,41 @@ def add_modern_front_page(doc, title: str, project_root: Optional[Path] = None):
     title_para.paragraph_format.space_after = Pt(12)
     title_para.paragraph_format.space_before = Pt(0)
     
-    # Enable word wrap and prevent truncation
     title_para.paragraph_format.widow_control = False
     title_para.paragraph_format.keep_together = False
     title_para.paragraph_format.keep_with_next = False
     
-    # Set paragraph properties to allow wrapping and prevent truncation
     p_pr = title_para._element.get_or_add_pPr()
-    # Remove any text overflow restrictions
     try:
-        # Ensure text can wrap - set word wrap property
         wrap = OxmlElement('w:wordWrap')
         wrap.set(qn('w:val'), '0')  # 0 = wrap text
         p_pr.append(wrap)
         
-        # Remove any overflow clip settings
         overflow = OxmlElement('w:overflowPunct')
-        overflow.set(qn('w:val'), '0')  # Allow punctuation to overflow
+        overflow.set(qn('w:val'), '0')
         p_pr.append(overflow)
         
-        # Remove any width restrictions - ensure paragraph can use full page width
-        # Remove any indentation that might restrict width
         if p_pr.find(qn('w:ind')) is not None:
             p_pr.remove(p_pr.find(qn('w:ind')))
     except Exception:
         pass
     
-    # Always add title as a single run to let Word handle wrapping naturally
-    # This prevents truncation issues
     title_run = title_para.add_run(title)
     title_run.font.name = "Calibri"
     title_run.font.size = font_size
     title_run.font.bold = True
     title_run.font.color.rgb = RGBColor(26, 84, 144)
     
-    # Ensure the run doesn't have any restrictions that might cause truncation
     try:
         r_pr = title_run._element.get_or_add_rPr()
-        # Remove any text effects that might truncate
-        # Ensure no character limits are applied
     except Exception:
         pass
     
     logger.info(f"Added title to front page: '{title[:50]}...' (length: {title_length}, font size: {font_size})")
     
-    # Add spacing
     doc.add_paragraph()
     doc.add_paragraph()
     
-    # Add date with subtle styling
     date_para = doc.add_paragraph()
     date_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     date_run = date_para.add_run(datetime.now().strftime("%B %d, %Y"))
@@ -275,11 +230,9 @@ def add_modern_front_page(doc, title: str, project_root: Optional[Path] = None):
     date_run.font.size = Pt(14)
     date_run.font.color.rgb = RGBColor(100, 100, 100)  # Gray
     
-    # Add more spacing
     for _ in range(4):
         doc.add_paragraph()
     
-    # Add company info section with modern styling
     company_para = doc.add_paragraph()
     company_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     company_run = company_para.add_run("fusionAIx")
@@ -288,7 +241,6 @@ def add_modern_front_page(doc, title: str, project_root: Optional[Path] = None):
     company_run.font.bold = True
     company_run.font.color.rgb = RGBColor(26, 84, 144)
     
-    # Add website
     website_para = doc.add_paragraph()
     website_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     website_run = website_para.add_run("www.fusionaix.com")
@@ -296,12 +248,10 @@ def add_modern_front_page(doc, title: str, project_root: Optional[Path] = None):
     website_run.font.size = Pt(12)
     website_run.font.color.rgb = RGBColor(100, 100, 100)
     
-    # Add decorative line (optional - using spacing instead for cleaner look)
     doc.add_paragraph()
 
 
 def add_manual_toc(doc, toc_entries: List[Dict[str, Any]]):
-    """Add a manual table of contents without page numbers."""
     if not toc_entries:
         para = doc.add_paragraph("No table of contents entries available.")
         return
@@ -310,23 +260,19 @@ def add_manual_toc(doc, toc_entries: List[Dict[str, Any]]):
         para = doc.add_paragraph()
         para.style = 'Normal'
         
-        # Add indentation based on level
         pf = para.paragraph_format
         indent_level = (entry.get('level', 1) - 1) * 0.5  # 0.5 inches per level
         if indent_level > 0:
             pf.left_indent = Inches(indent_level)
         
-        # Add text only (no page numbers)
         text = entry.get('text', '')
         
-        # Add text
         run = para.add_run(text)
         run.font.name = "Calibri"
         run.font.size = Pt(11)
 
 
 def set_table_header_cell(cell):
-    """Format a table header cell with bold text and styling."""
     for p in cell.paragraphs:
         for r in p.runs:
             r.bold = True
@@ -345,23 +291,19 @@ def set_table_header_cell(cell):
 
 
 def finalize_table(table):
-    """Apply final polish to a table: autofit, alignment, padding."""
     try:
         table.autofit = True
     except:
         pass
     
-    # Set vertical alignment and cell padding
     for row in table.rows:
         for cell in row.cells:
             try:
-                # Set vertical alignment to top for body cells
                 tc_pr = cell._element.get_or_add_tcPr()
                 v_align = OxmlElement('w:vAlign')
                 v_align.set(qn('w:val'), 'top')
                 tc_pr.append(v_align)
                 
-                # Set cell padding (top, right, bottom, left in twips - 1/20th of a point)
                 tc_mar = OxmlElement('w:tcMar')
                 for margin_name, margin_val in [('top', '80'), ('right', '80'), ('bottom', '80'), ('left', '80')]:
                     margin = OxmlElement(f'w:{margin_name}')
@@ -396,28 +338,24 @@ def _add_formatted_text_to_paragraph(para, text: str):
         parts = [('normal', text)]
     
     for fmt_type, content in parts:
-        if content:  # Only add non-empty content
+        if content:
             run = para.add_run(content)
             if fmt_type == 'bold':
                 run.bold = True
 
 
 def _add_bullet_paragraph(doc, content: str):
-    """Add a paragraph with proper bullet point formatting using standard bullets."""
     para = doc.add_paragraph()
     
-    # Set up proper indentation for bullet point
     pf = para.paragraph_format
     pf.left_indent = Inches(0.25)
     pf.first_line_indent = Inches(-0.25)
     pf.space_after = Pt(6)
     
-    # Add bullet character
-    bullet_run = para.add_run('• ')  # Standard bullet character
+    bullet_run = para.add_run('• ')
     bullet_run.font.name = "Calibri"
     bullet_run.font.size = Pt(11)
     
-    # Add formatted content (handle bold formatting)
     parts = []
     last_end = 0
     
@@ -445,7 +383,6 @@ def _add_bullet_paragraph(doc, content: str):
 
 
 def _start_table(doc, header_cells: List[str]):
-    """Create a new table with header row. Returns the table object."""
     num_cols = len(header_cells)
     current_table = doc.add_table(rows=1, cols=num_cols)
     try:
@@ -508,58 +445,86 @@ def _parse_markdown_to_docx(doc, text: str):
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
-        # Detect unfenced Mermaid blocks: lines that begin with Mermaid diagram keywords
         mermaid_start_pattern = re.compile(r'^(?:flowchart|graph|sequenceDiagram|classDiagram|gantt|stateDiagram|pie|erDiagram)\b', re.IGNORECASE)
         if mermaid_start_pattern.match(stripped):
-            # Collect contiguous mermaid lines until a blank line or a Caption: line
             block_lines = [line.rstrip('\n')]
             j = i + 1
             caption_text = None
             while j < len(lines):
                 next_line = lines[j]
                 next_stripped = next_line.strip()
-                # Stop if blank line; allow Caption: line to be captured separately
                 if not next_stripped:
                     break
                 if re.match(r'^Caption:\s*', next_stripped, flags=re.IGNORECASE):
                     caption_text = re.sub(r'^Caption:\s*', '', next_stripped, flags=re.IGNORECASE).strip()
                     j += 1
                     break
-                # If another markdown delimiter or heading starts, stop
                 if next_stripped.startswith('```') or next_stripped.startswith('#'):
                     break
                 block_lines.append(next_line.rstrip('\n'))
                 j += 1
 
             block_text = '\n'.join(block_lines)
-            # Sanitize labels to avoid Kroki/mmdc parse errors (unquoted commas/paren etc.)
             sanitized_block = _sanitize_mermaid_labels(block_text)
 
-            # Try to render same as fenced block handling
             rendered = None
             try:
-                rendered = render_mermaid_to_bytes(sanitized_block, fmt='png')
-            except FileNotFoundError:
-                logger.info('Local mmdc not found; will fall back to Kroki')
+                rendered = render_mermaid_to_bytes(sanitized_block, fmt='svg')
             except Exception as e:
-                logger.exception('Local mmdc rendering failed: %s', e)
-
+                logger.exception('MCP mermaid rendering failed: %s', e)
+            png_bytes = None
             if rendered:
+                if CAIROS_AVAILABLE:
+                    try:
+                        png_bytes = cairosvg.svg2png(bytestring=rendered)
+                    except Exception as e:
+                        logger.warning('Failed to convert SVG->PNG via cairosvg: %s', e)
+                        png_bytes = None
+                else:
+                    logger.warning('cairosvg not available; cannot convert SVG to PNG; falling back to Kroki')
+
+                if png_bytes and PIL_AVAILABLE:
+                    try:
+                        im = Image.open(BytesIO(png_bytes))
+                        im.verify()
+                    except Exception:
+                        logger.warning('Converted PNG bytes are not a valid image according to PIL; falling back to Kroki')
+                        png_bytes = None
+
+            img_to_insert = png_bytes if png_bytes else None
+
+            if img_to_insert:
                 try:
                     logger.info('Inserting locally rendered mermaid image into DOCX (unfenced)')
-                    img_stream = BytesIO(rendered)
-                    doc.add_picture(img_stream, width=Inches(5))
+                    img_stream = BytesIO(img_to_insert)
+                    img_stream.seek(0)
+                    try:
+                        doc.add_picture(img_stream, width=Inches(5))
+                    except Exception:
+                        logger.exception('doc.add_picture from BytesIO failed; trying temp file fallback')
+                        tmpname = None
+                        try:
+                            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tf:
+                                tf.write(img_to_insert)
+                                tmpname = tf.name
+                            doc.add_picture(tmpname, width=Inches(5))
+                        finally:
+                            if tmpname:
+                                try:
+                                    os.remove(tmpname)
+                                except Exception:
+                                    pass
+
                     if caption_text:
                         cap_para = doc.add_paragraph()
                         cap_run = cap_para.add_run(caption_text)
                         cap_run.italic = True
                         cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
                 except Exception as e:
-                    logger.warning('Failed to insert locally rendered mermaid image into docx (unfenced): %s', e)
+                    logger.exception('Failed to insert locally rendered mermaid image into docx (unfenced): %s', e)
                     rendered = None
 
             if not rendered:
-                # Kroki fallback
                 try:
                     kroki_url = 'https://kroki.io/mermaid/png'
                     resp = httpx.post(kroki_url, content=sanitized_block.encode('utf-8'), headers={"Content-Type": "text/plain"}, timeout=30.0)
@@ -595,15 +560,11 @@ def _parse_markdown_to_docx(doc, text: str):
             i = j
             continue
         
-        # Handle code blocks
         if stripped.startswith('```'):
-            # Determine language if provided: ```lang
             lang = stripped[3:].strip().lower()
             if in_code_block:
-                # End code block
                 if code_block_lines:
                     block_text = '\n'.join(code_block_lines)
-                    # Detect and strip an inline trailing caption if present (common LLM output quirk)
                     caption_text = None
                     m_caption = re.search(r"\n?\s*Caption:\s*(.+)\s*$", block_text, flags=re.IGNORECASE)
                     if m_caption:
@@ -611,35 +572,54 @@ def _parse_markdown_to_docx(doc, text: str):
                         block_text = re.sub(r"\n?\s*Caption:\s*.+\s*$", "", block_text, flags=re.IGNORECASE)
 
                     if code_block_lang == 'mermaid':
-                        # Prefer to render locally via mmdc (Mermaid CLI). If unavailable
-                        # or rendering fails, fall back to Kroki. If both fail, insert raw code.
                         rendered = None
-                        # Sanitize fenced mermaid block before rendering
                         sanitized_block = _sanitize_mermaid_labels(block_text)
                         try:
                             rendered = render_mermaid_to_bytes(sanitized_block, fmt='png')
-                        except FileNotFoundError:
-                            logger.info('Local mmdc not found; will fall back to Kroki')
                         except Exception as e:
-                            logger.exception('Local mmdc rendering failed: %s', e)
+                            logger.exception('MCP mermaid rendering failed: %s', e)
 
                         if rendered:
                             try:
                                 logger.info('Inserting locally rendered mermaid image into DOCX')
-                                img_stream = BytesIO(rendered)
-                                doc.add_picture(img_stream, width=Inches(5))
-                                # Insert caption if present
+                                if PIL_AVAILABLE:
+                                    try:
+                                        im = Image.open(BytesIO(rendered))
+                                        im.verify()
+                                    except Exception:
+                                        logger.warning('Rendered mermaid bytes are not a valid image according to PIL; falling back to Kroki')
+                                        rendered = None
+
+                                if rendered:
+                                    img_stream = BytesIO(rendered)
+                                    img_stream.seek(0)
+                                    try:
+                                        doc.add_picture(img_stream, width=Inches(5))
+                                    except Exception:
+                                        logger.exception('doc.add_picture from BytesIO failed; trying temp file fallback')
+                                        tmpname = None
+                                        try:
+                                            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tf:
+                                                tf.write(rendered)
+                                                tmpname = tf.name
+                                            doc.add_picture(tmpname, width=Inches(5))
+                                        finally:
+                                            if tmpname:
+                                                try:
+                                                    os.remove(tmpname)
+                                                except Exception:
+                                                    pass
+
                                 if caption_text:
                                     cap_para = doc.add_paragraph()
                                     cap_run = cap_para.add_run(caption_text)
                                     cap_run.italic = True
                                     cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
                             except Exception as e:
-                                logger.warning('Failed to insert locally rendered mermaid image into docx: %s', e)
+                                logger.exception('Failed to insert locally rendered mermaid image into docx: %s', e)
                                 rendered = None
 
                         if not rendered:
-                            # Try Kroki as a fallback
                             try:
                                 kroki_url = 'https://kroki.io/mermaid/png'
                                 resp = httpx.post(kroki_url, content=sanitized_block.encode('utf-8'), headers={"Content-Type": "text/plain"}, timeout=30.0)
@@ -656,7 +636,6 @@ def _parse_markdown_to_docx(doc, text: str):
                                             cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
                                     except Exception as e:
                                         logger.warning('Failed to insert Kroki mermaid image into docx: %s', e)
-                                        # Fall through to insert raw code
                                         para = doc.add_paragraph(style='Normal')
                                         para.style.font.name = 'Consolas'
                                         para.style.font.size = Pt(10)
@@ -682,7 +661,6 @@ def _parse_markdown_to_docx(doc, text: str):
                 in_code_block = False
                 code_block_lang = None
             else:
-                # Start code block
                 in_code_block = True
                 code_block_lang = lang or None
             i += 1
@@ -759,7 +737,6 @@ def _parse_markdown_to_docx(doc, text: str):
                             break
                         list_item_buffer.append(cont_stripped)
                         i += 1
-                    # Now add the complete list item
                     full_content = ' '.join(list_item_buffer)
                     list_item_buffer = []
                     full_content = _capitalize_sentence(full_content)
@@ -770,7 +747,6 @@ def _parse_markdown_to_docx(doc, text: str):
                         _add_formatted_text_to_paragraph(para, full_content)
                     continue
             
-            # Single-line list item
             content = _capitalize_sentence(content)
             if is_bullet:
                 _add_bullet_paragraph(doc, content)
@@ -780,15 +756,12 @@ def _parse_markdown_to_docx(doc, text: str):
             i += 1
             continue
         
-        # Regular text/headings
         _add_text_line(doc, stripped)
         i += 1
     
-    # Finalize any remaining table
     if in_table and current_table:
         finalize_table(current_table)
     
-    # Handle any remaining code block
     if in_code_block and code_block_lines:
         para = doc.add_paragraph(style='Normal')
         para.style.font.name = 'Consolas'
@@ -820,7 +793,6 @@ def _capitalize_sentence(text: str) -> str:
 
 
 def _add_text_line(doc, line: str):
-    """Add a single line of text to the document, handling headings and regular text."""
     stripped = line.strip()
     if not stripped:
         return
@@ -865,33 +837,25 @@ def generate_rfp_docx(
     
     logger.info("Generating DOCX document: %d requirement responses", len(individual_responses))
     
-    # Extract TOC entries before generating content
     is_structured = len(individual_responses) == 1 and individual_responses[0].get('requirement_id') == 'STRUCTURED'
     toc_entries = []
     
     if is_structured:
-        # Prefer detected sections from structure detection if available
         if (requirements_result.structure_detection and 
-            requirements_result.structure_detection.detected_sections):
-            # Use detected sections from structure detection
-            # Format with numbers (e.g., "1. Executive Summary", "2. Understanding...")
+            requirements_result.structure_detection.detected_sections):            # Use detected sections from structure detection
             toc_entries = [
                 {'text': f"{idx + 1}. {section}", 'level': 1}
                 for idx, section in enumerate(requirements_result.structure_detection.detected_sections)
             ]
         else:
-            # Fallback: Extract headings from structured response
             response_text = individual_responses[0].get('response', '')
             headings = _extract_headings_from_markdown(response_text)
-            # Filter to only include numbered sections (e.g., "1. Executive Summary", "2. Understanding...")
-            # Exclude non-numbered headings like "Ministry of Trade and Industry (MTI)"
             numbered_pattern = re.compile(r'^\d+\.\s+')
             toc_entries = [
                 h for h in headings 
                 if h['level'] <= 2 and numbered_pattern.match(h['text'])
             ]
     else:
-        # Create TOC entries for each requirement
         for idx, resp_data in enumerate(individual_responses, 1):
             req_id = resp_data.get('requirement_id', 'N/A')
             toc_entries.append({
@@ -901,37 +865,28 @@ def generate_rfp_docx(
     
     doc = Document()
     
-    # Setup styles first (cleanest output)
     setup_styles(doc)
     
-    # Setup page formatting for first section (front page - no page numbers)
     setup_page_formatting(doc, start_page_number=1)
     
-    # Disable page numbers for first section (front page)
     section = doc.sections[0]
     sect_pr = section._sectPr
-    # Remove footer for first section
     footer = section.footer
-    # Clear footer paragraphs instead of using clear_content()
     for para in footer.paragraphs[:]:
         p = para._element
         p.getparent().remove(p)
     
-    # Determine project root for logo path (always calculate from file location)
     project_root = Path(__file__).parent.parent.parent
     
-    # Create modern front page
     final_title = rfp_title or extraction_result.language.upper()
     add_modern_front_page(doc, final_title, project_root)
     
-    # Add new section for TOC (no page numbers) - NEW_PAGE creates the page break
     section = doc.add_section(WD_SECTION_START.NEW_PAGE)
     section.is_linked_to_previous = False  # Break link to previous section's header/footer
     section.header.is_linked_to_previous = False
     section.footer.is_linked_to_previous = False
     sect_pr = section._sectPr
     footer = section.footer
-    # Clear footer paragraphs instead of using clear_content()
     for para in footer.paragraphs[:]:
         p = para._element
         p.getparent().remove(p)
@@ -939,41 +894,32 @@ def generate_rfp_docx(
     doc.add_heading("Table of Contents", 1)
     doc.add_paragraph()  # Add spacing after heading
     
-    # Add manual TOC with structure or requirement names (no page numbers)
     add_manual_toc(doc, toc_entries)
     
-    # Add new section for main content (with page numbers starting from 1, but it's actually page 3) - NEW_PAGE creates the page break
     section = doc.add_section(WD_SECTION_START.NEW_PAGE)
     section.is_linked_to_previous = False  # Break link to previous section's header/footer
     section.header.is_linked_to_previous = False
     section.footer.is_linked_to_previous = False
     
-    # Set page number to start at 1 for this section (even though it's the 3rd physical page)
     sect_pr = section._sectPr
-    # Remove any existing pgNumType element
     existing_pg_num = sect_pr.find(qn('w:pgNumType'))
     if existing_pg_num is not None:
         sect_pr.remove(existing_pg_num)
-    # Create new page number type with restart at 1
     pg_num_type = OxmlElement('w:pgNumType')
     pg_num_type.set(qn('w:start'), '1')  # Start numbering at 1
     pg_num_type.set(qn('w:fmt'), 'decimal')  # Use decimal numbering (1, 2, 3...)
     sect_pr.append(pg_num_type)
     
-    # Setup page formatting with footer for this section
     section.top_margin = Inches(1)
     section.bottom_margin = Inches(1)
     section.left_margin = Inches(1)
     section.right_margin = Inches(1)
     
-    # Add page number to footer
     footer = section.footer
-    # Ensure footer has at least one paragraph
     if len(footer.paragraphs) == 0:
         p = footer.add_paragraph()
     else:
         p = footer.paragraphs[0]
-        # Clear existing content if any
         p.clear()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run = p.add_run()
@@ -1037,7 +983,6 @@ We support clients across diverse industries including Insurance, Banking & Fina
         logger.info("DOCX saved to: %s", output_path.absolute())
         return output_path.read_bytes()
     else:
-        # Use BytesIO instead of temp file round-trip
         buf = BytesIO()
         doc.save(buf)
         bytes_data = buf.getvalue()

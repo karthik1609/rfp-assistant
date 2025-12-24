@@ -29,7 +29,6 @@ def _detect_structure_cached(response_structure_json: str) -> Dict[str, Any]:
         }
     
     structure_text = "\n\n".join([
-        # The `type` field was removed; include the requirement text only.
         f"{req.source_text}"
         for req in response_structure_requirements
     ])

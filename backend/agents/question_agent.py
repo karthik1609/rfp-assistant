@@ -14,9 +14,7 @@ from backend.agents.prompts import QUESTION_SYSTEM_PROMPT
 logger = logging.getLogger(__name__)
 QUESTION_MODEL = "gpt-5-chat"
 
-# Maximum number of critical questions to ask
 MAX_CRITICAL_QUESTIONS = 5
-
 
 def get_next_critical_question(
     requirements_result: RequirementsResult,
@@ -33,7 +31,6 @@ def get_next_critical_question(
         max_questions,
     )
     
-    # Stop if we've already asked the maximum number of questions
     if len(previous_answers) >= max_questions:
         logger.info(
             "Maximum number of critical questions (%d) already reached. No more questions will be asked.",
@@ -49,7 +46,6 @@ def get_next_critical_question(
         answer_lines = []
         for a in previous_answers:
             if not a.answer_text or a.answer_text.strip() == "":
-                # Empty answer means topic was intentionally skipped
                 answer_lines.append(f"Q: {a.question_text}\nA: [SKIPPED - Topic intentionally skipped, do NOT ask about this topic again]")
                 skipped_topics.append(a.question_text.lower())
             else:
@@ -170,9 +166,7 @@ IMPORTANT:
         question = result["question"]
         question_text_lower = question.get("question_text", "").lower()
         
-        # Check if this question is about a topic that was previously skipped
         for skipped_q in skipped_topics:
-            # Simple check: if key words from skipped question appear in new question, skip it
             skipped_words = [w for w in skipped_q.split() if len(w) > 4]
             if skipped_words and any(word in question_text_lower for word in skipped_words):
                 logger.info(
@@ -591,11 +585,9 @@ Return an EMPTY ARRAY [] if:
         len(critical_questions),
     )
     
-    # Enforce maximum of 5 critical questions
     if len(critical_questions) > MAX_CRITICAL_QUESTIONS:
         critical_questions = _consolidate_critical_questions(critical_questions, company_kb, max_questions=MAX_CRITICAL_QUESTIONS)
     
-    # Ensure we never return more than 5
     critical_questions = critical_questions[:MAX_CRITICAL_QUESTIONS]
     
     return critical_questions, rag_contexts_by_req

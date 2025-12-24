@@ -158,7 +158,6 @@ def run_response_agent(
         user_prompt_parts.append(f"FUSIONAIX CONTEXT: {fusionaix_context}")
         user_prompt_parts.append("")
 
-    # Inject local memory snippets (if any) into the prompt as additional context
     if retrieved_memories:
         user_prompt_parts.extend([
             "=" * 80,
@@ -168,7 +167,6 @@ def run_response_agent(
         for mem in retrieved_memories:
             score = mem.get("score")
             snippet = mem.get("snippet") or ""
-            # include slightly more content if available in messages
             messages = mem.get("messages") or []
             msg_content = "".join([str(m.get("content") or "") for m in messages[:2]])
             piece = snippet or (msg_content[:1000])

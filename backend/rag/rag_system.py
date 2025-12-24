@@ -379,10 +379,8 @@ class RAGSystem:
 
     def _get_blob_names(self) -> Tuple[str, str, str]:
         if self.index_path:
-            # Use index_path as base for blob names
             base_name = self.index_path.name
         else:
-            # Fallback to default name
             base_name = "rag_index"
         return (
             f"{base_name}.index",
@@ -432,7 +430,6 @@ class RAGSystem:
                     else:
                         logger.warning("Failed to upload index to Azure Blob Storage")
                 
-                # Upload metadata file
                 if metadata_path.exists():
                     success = self.azure_blob.upload_file(
                         blob_name=metadata_blob_name,
@@ -444,7 +441,6 @@ class RAGSystem:
                     else:
                         logger.warning("Failed to upload metadata to Azure Blob Storage")
 
-                # Upload docs manifest
                 if manifest_path.exists():
                     success = self.azure_blob.upload_file(
                         blob_name=manifest_blob_name,
@@ -466,32 +462,25 @@ class RAGSystem:
         metadata_file = self.index_path.with_suffix(".metadata.pkl")
         manifest_file = self.index_path.with_suffix(".docs_manifest.pkl")
 
-        # Check if local files exist first - if they do, use them (faster, no download needed)
         local_files_exist = index_file.exists() and metadata_file.exists()
         
         loaded_from_azure = False
         if not local_files_exist:
-            # Only download from Azure if local files don't exist
             if self.azure_blob and self.azure_blob.is_available():
                 try:
                     index_blob_name, metadata_blob_name, manifest_blob_name = self._get_blob_names()
                     
-                    # Check if blobs exist in Azure
                     if self.azure_blob.blob_exists(index_blob_name) and self.azure_blob.blob_exists(metadata_blob_name):
                         logger.info("RAG: Local index not found, downloading from Azure Blob Storage...")
                         
-                        # Download index
                         index_data = self.azure_blob.download_bytes(index_blob_name)
                         if index_data:
-                            # Save to local file for FAISS to read
                             index_file.parent.mkdir(parents=True, exist_ok=True)
                             with open(index_file, "wb") as f:
                                 f.write(index_data)
 
-                            # Download metadata
                             metadata_data = self.azure_blob.download_bytes(metadata_blob_name)
                             if metadata_data:
-                                # Save to local file
                                 metadata_file.parent.mkdir(parents=True, exist_ok=True)
                                 with open(metadata_file, "wb") as f:
                                     f.write(metadata_data)
@@ -501,7 +490,6 @@ class RAGSystem:
                             else:
                                 logger.warning("RAG: Failed to download metadata from Azure Blob Storage")
 
-                            # Download docs manifest (optional but preferred)
                             manifest_data = self.azure_blob.download_bytes(manifest_blob_name)
                             if manifest_data:
                                 manifest_file.parent.mkdir(parents=True, exist_ok=True)
@@ -515,7 +503,6 @@ class RAGSystem:
                 except Exception as e:
                     logger.warning("RAG: Failed to load from Azure Blob Storage: %s, falling back to local", str(e))
 
-        # Load from local files (either downloaded from Azure or already existed)
         if not index_file.exists():
             raise FileNotFoundError(f"Index file not found: {index_file}")
         if not metadata_file.exists():
@@ -528,7 +515,6 @@ class RAGSystem:
         else:
             logger.info("RAG: Loading index from local files: %s", index_file)
 
-        # Read index and metadata (now available locally)
         self.index = faiss.read_index(str(index_file))
 
         with open(metadata_file, "rb") as f:

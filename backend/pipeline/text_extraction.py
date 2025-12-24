@@ -283,7 +283,6 @@ def extract_text_from_file(path: PathLike) -> str:
     else:
         raise ValueError(f"Unsupported file type for path: {path}")
     direct_text_length = len(direct_text.strip()) if direct_text else 0
-    # For plain text and Excel files we do not perform OCR fallback; always return direct text.
     if suffix in {".txt", ".xlsx", ".xls"}:
         logger.info(
             "[Text Extraction] Using direct extraction for %s (no OCR fallback). Characters: %d",

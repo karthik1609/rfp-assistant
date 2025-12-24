@@ -68,7 +68,6 @@ def _setup_rag_and_kb(use_rag: bool) -> tuple[Optional[RAGSystem], FusionAIxKnow
                 query_cache_path=str(query_cache_path),
             )
             try:
-                # Ensure we have an index, and only rebuild/push when docs changed
                 rag_system.ensure_index_up_to_date()
                 stats = rag_system.get_stats()
                 logger.info(
@@ -280,7 +279,6 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
     if not files:
         raise HTTPException(status_code=400, detail="No files uploaded.")
 
-    # Validate all file types first
     for file in files:
         suffix = Path(file.filename).suffix.lower()
         if suffix not in SUPPORTED_FILE_TYPES:
@@ -297,7 +295,6 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
     all_text_parts: List[str] = []
     temp_paths: List[Path] = []
 
-    # Process each file
     for file_index, file in enumerate(files, 1):
         temp_path = Path("/tmp") / f"{request_id}_{file_index}_{file.filename}"
         temp_paths.append(temp_path)
@@ -331,7 +328,6 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
                 request_id, len(file_text), file_index, len(files), file.filename,
             )
             if file_text.strip():
-                # Add file marker if multiple files
                 if len(files) > 1:
                     all_text_parts.append(f"\n{'='*60}\nFILE: {file.filename}\n{'='*60}\n\n{file_text}")
                 else:
@@ -339,7 +335,6 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
         except Exception as e:
             logger.exception("REQUEST %s: failed to extract text from %s: %s", request_id, file.filename, e)
 
-    # Clean up temp files
     for temp_path in temp_paths:
         try:
             temp_path.unlink(missing_ok=True)
@@ -420,10 +415,6 @@ async def run_preprocess(req: PreprocessRequest) -> Dict[str, Any]:
 
 @app.post('/render/mermaid')
 async def render_mermaid(req: RenderRequest):
-    """Render mermaid diagram via Kroki and return image bytes.
-
-    This proxies the diagram text to kroki.io; set `format` to 'png' or 'svg'.
-    """
     diagram = (req.diagram or "").strip()
     fmt = (req.format or 'png').lower()
     if not diagram:
@@ -431,14 +422,11 @@ async def render_mermaid(req: RenderRequest):
     if fmt not in ('png', 'svg'):
         raise HTTPException(status_code=400, detail='Invalid format: choose png or svg')
 
-    # Log the raw diagram value we received (escaped newlines) to help debug
     try:
         logger.info('Received raw diagram (escaped newlines): %s', diagram.replace('\n','\\n')[:1000])
     except Exception:
         logger.debug('Failed to log raw diagram')
 
-    # If the diagram text contains a trailing "Caption: ..." line (LLM may add it),
-    # strip it before sending to renderers. Keep the caption to return in a header.
     caption = None
     m = re.search(r'^(?P<diag>.*?)(?:\n+Caption:\s*(?P<cap>.*))?$', diagram, flags=re.I | re.S)
     if m:
@@ -446,7 +434,6 @@ async def render_mermaid(req: RenderRequest):
         caption = (m.group('cap') or '').strip() or None
         if caption:
             logger.info('Detected and stripped caption from diagram for rendering: %s', caption)
-    # Log a sanitized preview of the diagram_text for debugging (show newlines as \n)
     try:
         preview = diagram_text.replace('\n', '\\n')[:1000]
         logger.info('Diagram text preview (escaped newlines): %s', preview)
@@ -454,25 +441,19 @@ async def render_mermaid(req: RenderRequest):
     except Exception:
         logger.debug('Failed to produce diagram preview for logs')
     
-    # Try local Mermaid CLI (mmdc) first for enterprise/local rendering.
     try:
         loop = asyncio.get_running_loop()
-        logger.info('Attempting local mmdc rendering for diagram (fmt=%s)', fmt)
+        logger.info('Attempting MCP mermaid rendering for diagram (fmt=%s)', fmt)
         data = await loop.run_in_executor(None, lambda: render_mermaid_to_bytes(diagram_text, fmt))
         media_type = 'image/png' if fmt == 'png' else 'image/svg+xml'
-        logger.info('Local mmdc rendering succeeded; returning image bytes')
-        headers = {"X-Diagram-Renderer": "local-mmdc"}
+        logger.info('MCP mermaid rendering succeeded; returning image bytes')
+        headers = {"X-Diagram-Renderer": "mcp-mermaid"}
         if caption:
             headers["X-Diagram-Caption"] = caption
         return Response(content=data, media_type=media_type, headers=headers)
-    except FileNotFoundError:
-        # mmdc not installed - fall back to Kroki
-        logger.info('mmdc not found locally; falling back to Kroki')
     except Exception as e:
-        # If local rendering failed, log and fall back to Kroki
-        logger.exception('Local mmdc rendering failed: %s', e)
+        logger.exception('MCP mermaid rendering failed: %s', e)
 
-    # Fallback: proxy to kroki.io
     kroki_url = f'https://kroki.io/mermaid/{fmt}'
 
     try:
@@ -570,20 +551,16 @@ def _extract_title_from_key_requirements(key_requirements_summary: str) -> Optio
     if not key_requirements_summary:
         return None
     
-    # Split by newlines and find the first bullet point
     lines = key_requirements_summary.strip().split('\n')
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        # Remove common bullet point markers (with optional space after)
         for marker in ['-', '•', '*', '·']:
             if line.startswith(marker):
-                # Remove marker and any following space
                 title = line[1:].strip()
-                if title:  # Only return if there's content after the marker
+                if title:
                     return title
-        # If no marker found, return the first non-empty line as-is
         return line
     
     return None
@@ -1390,11 +1367,6 @@ async def generate_questions_endpoint(req: GenerateQuestionsRequest) -> Dict[str
             detail="Generate questions failed. Check server logs.",
         ) from exc
 
-
-# =============================================================================
-# ITERATIVE QUESTION FLOW - One question at a time
-# =============================================================================
-
 class GetNextQuestionRequest(BaseModel):
     requirements: Dict[str, Any]
     session_id: Optional[str] = None
@@ -1402,13 +1374,6 @@ class GetNextQuestionRequest(BaseModel):
 
 @app.post("/get-next-question")
 async def get_next_question_endpoint(req: GetNextQuestionRequest) -> Dict[str, Any]:
-    """
-    Get the next single critical question to ask (iterative flow).
-    
-    1. Searches RAG for existing info on all requirements
-    2. Considers previous answers from session
-    3. Returns ONE critical question (or null if none needed)
-    """
     logger.info("Get next question (session=%s)", req.session_id)
     
     try:
@@ -1416,7 +1381,6 @@ async def get_next_question_endpoint(req: GetNextQuestionRequest) -> Dict[str, A
         rag_system, _ = _setup_rag_and_kb(use_rag=True)
         requirements_result = RequirementsResult(**req.requirements)
         
-        # Get previous answers and cached RAG from session
         previous_answers: List[Answer] = []
         rag_contexts_by_req: Dict[str, str] = {}
         if req.session_id and req.session_id in _conversation_sessions:
@@ -1437,7 +1401,6 @@ async def get_next_question_endpoint(req: GetNextQuestionRequest) -> Dict[str, A
             rag_contexts_by_req=rag_contexts_by_req,
         )
         
-        # Persist updated RAG cache back into session
         if req.session_id and req.session_id in _conversation_sessions:
             _conversation_sessions[req.session_id].rag_contexts_by_req = updated_rag
         
@@ -1449,7 +1412,6 @@ async def get_next_question_endpoint(req: GetNextQuestionRequest) -> Dict[str, A
                 "message": "All critical information is available. Ready to generate response.",
             }
         
-        # Create question ID
         req_id = question.get("requirement_id", "general")
         question_count = len(previous_answers)
         question["question_id"] = f"{req_id}-q-{question_count}"
@@ -1477,11 +1439,6 @@ class SubmitIterativeAnswerRequest(BaseModel):
 
 @app.post("/submit-answer-get-next")
 async def submit_answer_and_get_next(req: SubmitIterativeAnswerRequest) -> Dict[str, Any]:
-    """
-    Submit an answer and immediately get the next question (if any).
-    
-    Combines answer submission with checking for remaining gaps.
-    """
     logger.info("Submit answer for %s and get next", req.question_id)
     
     if req.session_id not in _conversation_sessions:
@@ -1489,7 +1446,6 @@ async def submit_answer_and_get_next(req: SubmitIterativeAnswerRequest) -> Dict[
     
     context = _conversation_sessions[req.session_id]
     
-    # Save the answer
     answer = Answer(
         question_id=req.question_id,
         question_text=req.question_text,
@@ -1499,7 +1455,6 @@ async def submit_answer_and_get_next(req: SubmitIterativeAnswerRequest) -> Dict[
     context.answers.append(answer)
     logger.info("Saved answer for %s (total answers: %d)", req.question_id, len(context.answers))
     
-    # Check if more questions needed
     try:
         company_kb = get_company_kb()
         rag_system, _ = _setup_rag_and_kb(use_rag=True)
@@ -1514,7 +1469,6 @@ async def submit_answer_and_get_next(req: SubmitIterativeAnswerRequest) -> Dict[
             rag_contexts_by_req=rag_contexts_by_req,
         )
         
-        # Persist updated RAG cache
         context.rag_contexts_by_req = updated_rag
         
         if not needs_more or next_question is None:
@@ -1526,12 +1480,10 @@ async def submit_answer_and_get_next(req: SubmitIterativeAnswerRequest) -> Dict[
                 "message": "All critical information gathered. Ready to generate response.",
             }
         
-        # Create question ID for next question
         req_id = next_question.get("requirement_id", "general")
         next_question["question_id"] = f"{req_id}-q-{len(context.answers)}"
         next_question["priority"] = "high"
         
-        # Add to session
         q_obj = Question(
             question_id=next_question["question_id"],
             requirement_id=next_question.get("requirement_id"),
@@ -1838,8 +1790,6 @@ class PreviewContextRequest(BaseModel):
 @app.post("/preview-context")
 @app.get("/preview-context")
 async def preview_context_endpoint(req: PreviewContextRequest | None = None) -> Dict[str, Any]:
-    # Allow GET for quick diagnostics (no body). If called with GET, return a small
-    # informational payload explaining how to call the POST endpoint.
     if req is None:
         return {
             "message": "POST /preview-context expected. Use POST with JSON body {preprocess, requirements, use_rag, num_retrieval_chunks, session_id}.",
@@ -1865,7 +1815,6 @@ async def preview_context_endpoint(req: PreviewContextRequest | None = None) -> 
                     results = []
                 rag_contexts_by_req[solution_req.id] = results
         else:
-            # No RAG available - return empty lists
             for solution_req in requirements_result.solution_requirements:
                 rag_contexts_by_req[solution_req.id] = []
 
