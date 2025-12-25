@@ -38,7 +38,17 @@ export default function ProgressTracker() {
     if (stepId === 'response' && !confirmations.buildQueryConfirmed && status === 'waiting') {
       return 'blocked'
     }
-    
+    // If an explicit error state has been set, keep it
+    if (status === 'error') return 'error'
+
+    // If pipeline data for a step exists, prefer marking it complete
+    // unless an explicit error state was set above.
+    if (stepId === 'ocr' && pipelineData.ocr) return 'complete'
+    if (stepId === 'preprocess' && pipelineData.preprocess) return 'complete'
+    if (stepId === 'requirements' && pipelineData.requirements) return 'complete'
+    if (stepId === 'build-query' && pipelineData.buildQuery) return 'complete'
+    if (stepId === 'response' && pipelineData.response) return 'complete'
+
     return status
   }
 
@@ -62,7 +72,7 @@ export default function ProgressTracker() {
       if (status === 'processing') {
         return step
       }
-      if (status === 'waiting' && status !== 'blocked') {
+      if (status === 'waiting') {
         return step
       }
     }
@@ -110,11 +120,22 @@ export default function ProgressTracker() {
         })}
       </div>
       
-      {currentStep && statuses[currentStep.id] === 'processing' && (
-        <div className="progress-status">
-          Processing {currentStep.label}...
-        </div>
-      )}
+      <div className="progress-status">
+        {/**
+         * Show error first (so an explicit error doesn't get masked by a
+         * lingering 'processing' flag). Then show response-specific
+         * messages, then fall back to the current step processing message.
+         */}
+        {statuses['response'] === 'error' || getStepStatus('response') === 'error'
+          ? 'Error generating response'
+          : statuses['response'] === 'processing' || getStepStatus('response') === 'processing'
+          ? 'Generating response...'
+          : getStepStatus('response') === 'complete'
+          ? 'Response generated'
+          : currentStep && getStepStatus(currentStep.id) === 'processing'
+          ? `Processing ${currentStep.label}...`
+          : ''}
+      </div>
     </div>
   )
 }

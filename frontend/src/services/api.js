@@ -129,6 +129,14 @@ export async function generateResponse(preprocess, requirements, options = {}) {
     return { type: "pdf", blob };
   }
 
+  if (contentType && contentType.includes("application/vnd.openxmlformats-officedocument.wordprocessingml.document")) {
+    const blob = await response.blob();
+    if (blob.size === 0) {
+      throw new Error("DOCX blob is empty");
+    }
+    return { type: "docx", blob };
+  }
+
   // Fallback to JSON if not PDF
   return await response.json();
 }
