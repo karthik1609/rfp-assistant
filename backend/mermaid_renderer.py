@@ -98,7 +98,7 @@ def _is_svg(data: bytes) -> bool:
 
 
 
-def render_mermaid_to_bytes(diagram: str, fmt: str = "png", timeout: int = 30) -> bytes:
+def render_mermaid_to_bytes(diagram: str, fmt: str = "png", timeout: int = 90) -> Optional[bytes]:
     fmt = (fmt or "png").lower()
     if fmt not in ("png", "svg"):
         raise ValueError("fmt must be 'png' or 'svg'")
@@ -117,8 +117,8 @@ def render_mermaid_to_bytes(diagram: str, fmt: str = "png", timeout: int = 30) -
     ]
 
     instruction = f"""Render the following Mermaid diagram to {fmt.upper()}.
-If the output is binary (PNG), return the image as base64 only (no extra text).
-If the output is SVG, return the raw SVG markup only.
+If PNG: return exactly one line in the form `data:image/png;base64,<BASE64>` and nothing else.
+If SVG: return the raw SVG markup only (no surrounding commentary).
 Here is the diagram:
 ```
 {diagram}
@@ -144,102 +144,42 @@ Here is the diagram:
         output_text = getattr(response, "output_text", None)
 
     if not output_text:
-        raise RuntimeError("MCP mermaid renderer did not return any textual output")
+        logger.warning("MCP mermaid renderer returned no textual output")
+        return None
 
     output_text = output_text.strip()
 
-    data_decoded = None
-    try:
-        if fmt == "png":
-            m_md = re.search(r"data:image/png;base64,([A-Za-z0-9+/=\s]+)", output_text, flags=re.I)
-            if m_md:
-                b64 = re.sub(r"\s+", "", m_md.group(1))
-                b64 = re.sub(r"[^A-Za-z0-9+/=]", "", b64)
-                pad = (-len(b64)) % 4
-                if pad:
-                    b64 += "=" * pad
-                try:
-                    data_decoded = base64.b64decode(b64)
-                except Exception:
-                    data_decoded = None
-    except Exception:
-        data_decoded = None
+    if fmt == "png":
+        m = re.search(r"data:image/png;base64,([A-Za-z0-9+/=\s]+)", output_text, flags=re.I)
+        if not m:
+            logger.debug("No explicit PNG data URL found in MCP response; will fall back to Kroki")
+            return None
 
-    if not data_decoded:
-        data_decoded = _decode_data_url_image(output_text, expected_fmt=fmt)
-    if data_decoded:
-        if fmt == "png":
-            if _is_png(data_decoded) or _is_jpg(data_decoded):
-                return data_decoded
-            if _is_svg(data_decoded):
-                logger.warning("MCP returned SVG in data URL while fmt=png (len=%d) - rejecting for DOCX embedding", len(data_decoded))
-                data_decoded = None
-            else:
-                logger.warning("MCP returned non-image bytes in data URL while fmt=png (len=%d) - rejecting for DOCX embedding", len(data_decoded))
-                data_decoded = None
-        else:
-            return data_decoded
+        b64 = re.sub(r"\s+", "", m.group(1))
+        b64 = re.sub(r"[^A-Za-z0-9+/=]", "", b64)
+        pad = (-len(b64)) % 4
+        if pad:
+            b64 += "=" * pad
+
+        try:
+            decoded = base64.b64decode(b64)
+        except Exception as e:
+            logger.warning("Failed to decode PNG base64 from MCP response: %s", e)
+            return None
+
+        if _is_png(decoded) or _is_jpg(decoded):
+            return decoded
+        if _is_svg(decoded):
+            logger.warning("MCP returned SVG bytes in PNG data URL; rejecting and falling back")
+            return None
+
+        logger.warning("Decoded bytes are not a recognized PNG/JPG; rejecting and falling back")
+        return None
 
     if fmt == "svg":
-        if output_text.startswith("<svg"):
+        if output_text.startswith("<svg") or output_text.lstrip().startswith("<?xml"):
             return output_text.encode("utf-8")
         svg_data = _decode_data_url_image(output_text, expected_fmt="svg")
         if svg_data:
             return svg_data
         return output_text.encode("utf-8")
-
-    if output_text.startswith("data:image/png;base64,"):
-        b64 = output_text.split(",", 1)[1]
-        try:
-            decoded = base64.b64decode(b64)
-            if _is_png(decoded) or _is_jpg(decoded):
-                return decoded
-            if _is_svg(decoded):
-                logger.warning("MCP returned SVG in explicit data URL while fmt=png (len=%d) - rejecting for DOCX embedding", len(decoded))
-            else:
-                logger.warning("Decoded explicit data URL but it is not a valid PNG/JPG; allowing Kroki fallback (len=%d)", len(decoded))
-        except Exception as e:
-            logger.warning("Failed to decode base64 PNG from data URL: %s", e)
-
-    m = re.search(r"```(?:\w+)?\s*([A-Za-z0-9+/=\s]+?)\s*```", output_text, flags=re.DOTALL)
-    candidate = None
-    if m:
-        candidate = m.group(1)
-
-    if not candidate:
-        b64_subs = re.findall(r"[A-Za-z0-9+/]{80,}={0,2}", output_text)
-        if b64_subs:
-            candidate = max(b64_subs, key=len)
-
-    if not candidate:
-        stripped = re.sub(r"[^A-Za-z0-9+/=]", "", output_text)
-        if len(stripped) >= 64:
-            candidate = stripped
-
-    if not candidate:
-        preview = output_text[:1000].replace('\n', '\\n')
-        logger.warning("No base64-like substring found in MCP response for PNG output. Will allow Kroki fallback. Preview: %s", preview)
-        return None
-
-    candidate = re.sub(r"\s+", "", candidate)
-    candidate = re.sub(r"[^A-Za-z0-9+/=]", "", candidate)
-
-    pad = (-len(candidate)) % 4
-    if pad:
-        candidate += "=" * pad
-
-    logger.debug("Attempting to decode base64 PNG candidate (len=%d) ...", len(candidate))
-    try:
-        decoded = base64.b64decode(candidate)
-    except Exception as e:
-        logger.warning("Failed to decode base64 PNG candidate from MCP response; allowing Kroki fallback: %s", e)
-        return None
-
-    if _is_png(decoded) or _is_jpg(decoded):
-        return decoded
-    if _is_svg(decoded):
-        logger.warning("MCP returned SVG bytes when PNG was requested (len=%d) - rejecting for DOCX embedding", len(decoded))
-        return None
-
-    logger.warning("Decoded bytes are not a recognized PNG/JPG/SVG; allowing Kroki fallback (len=%d, head=%r)", len(decoded), decoded[:64])
-    return None
