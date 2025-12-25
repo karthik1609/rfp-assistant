@@ -248,6 +248,8 @@ export default function AgentPanel({ agentId }) {
       const reqData = await runRequirements(pipelineData.preprocess.cleaned_text)
       updatePipelineData('requirements', reqData)
       updateStatus('requirements', 'complete')
+    // Switch to the requirements tab so the user sees the generated requirements
+    setActiveTab('requirements')
       let reqSummary = `Solution: ${reqData?.solution_requirements?.length || 0}, Response structure: ${reqData?.response_structure_requirements?.length || 0}`
       if (reqData?.structure_detection) {
         const sd = reqData.structure_detection
