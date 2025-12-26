@@ -160,6 +160,21 @@ def run_structured_response_agent(
     except Exception as e:
         logger.warning("Structured clarity check failed: %s", e)
         retrieved_memories = []
+    
+    retrieved_edit_memories: List[Dict[str, Any]] = []
+    try:
+        search_query = solution_reqs_text or structure_desc or ""
+        if search_query:
+            retrieved_edit_memories = search_memories(search_query, max_results=3, stage="edit_memory")
+            if retrieved_edit_memories:
+                ids_scores = []
+                for m in retrieved_edit_memories:
+                    uid = (m.get("user_id") or "")[:12]
+                    score = m.get("score") or 0.0
+                    ids_scores.append(f"{uid}:{score:.3f}")
+                logger.info("Structured flow included %d edit memory snippets (ids/scores=%s)", len(retrieved_edit_memories), ",".join(ids_scores))
+    except Exception as edit_mem_exc:
+        logger.warning("Structured flow edit memory search failed: %s", edit_mem_exc)
 
     if 'retrieved_memories' in locals() and retrieved_memories:
         user_prompt_extra_mem = ["", "=" * 80, "LOCAL MEMORY (mem0) - Relevant snippets (use as additional context):", "=" * 80]
@@ -208,6 +223,42 @@ def run_structured_response_agent(
     if mem_section_text:
         user_prompt_parts.append(mem_section_text)
         user_prompt_parts.append("")
+    
+    if retrieved_edit_memories:
+        user_prompt_parts.extend([
+            "=" * 80,
+            "USER EDIT MEMORIES - Learn from past corrections (CRITICAL - apply these patterns):",
+            "=" * 80,
+        ])
+        for mem in retrieved_edit_memories:
+            score = mem.get("score")
+            messages = mem.get("messages") or []
+            try:
+                import json
+                content_str = str(messages[1].get("content", "") if len(messages) > 1 else "")
+                if content_str:
+                    edit_data = json.loads(content_str)
+                    sentence_changes = edit_data.get("sentence_changes", [])
+                    if sentence_changes:
+                        user_prompt_parts.append(f"EDIT MEMORY (score={score:.3f}):")
+                        user_prompt_parts.append("The user previously corrected these sentences:")
+                        for sent_change in sentence_changes[:10]:  # Limit to 10 sentences
+                            original = sent_change.get("original", "")
+                            edited = sent_change.get("edited", "")
+                            if original and edited:
+                                user_prompt_parts.append(f"  Original: {original}")
+                                user_prompt_parts.append(f"  Corrected: {edited}")
+                                user_prompt_parts.append("")
+                        user_prompt_parts.append("IMPORTANT: Apply similar corrections in your response. Pay attention to:")
+                        user_prompt_parts.append("  - Capitalization of names, terms, and proper nouns")
+                        user_prompt_parts.append("  - Specific terminology the user prefers")
+                        user_prompt_parts.append("  - Content additions or modifications the user made")
+                        user_prompt_parts.append("")
+            except Exception:
+                msg_content = "".join([str(m.get("content") or "") for m in messages])
+                piece = msg_content[:1500]
+                user_prompt_parts.append(f"EDIT MEMORY (score={score:.3f}): {piece}")
+                user_prompt_parts.append("")
     
     if qa_context:
         qa_context_limited = qa_context

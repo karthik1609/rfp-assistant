@@ -2081,6 +2081,47 @@ async def save_docx_endpoint(req: SaveDocxRequest) -> Dict[str, Any]:
         ) from exc
 
 
+class StoreEditMemoryRequest(BaseModel):
+    changed_sentences: List[Dict[str, Any]]
+    requirements_context: Optional[Dict[str, Any]] = None
+
+@app.post("/store-edit-memory")
+async def store_edit_memory_endpoint(req: StoreEditMemoryRequest) -> Dict[str, Any]:
+    try:
+        from backend.memory.mem0_client import store_edit_memory
+        
+        source_text = ""
+        if req.changed_sentences and len(req.changed_sentences) > 0:
+            first_sentence = req.changed_sentences[0].get("edited_sentence", "")
+            source_text = first_sentence[:500]
+        
+        edit_payload = {
+            "changed_sentences": req.changed_sentences,
+            "requirements_context": req.requirements_context,
+        }
+        
+        success = store_edit_memory(source_text, edit_payload)
+        
+        if success:
+            logger.info("Stored edit memory with %d changed sentences", len(req.changed_sentences))
+            return {
+                "status": "ok",
+                "changed_sentences_count": len(req.changed_sentences),
+            }
+        else:
+            logger.warning("Failed to store edit memory")
+            return {
+                "status": "error",
+                "message": "Failed to store edit memory",
+            }
+    except Exception as exc:
+        logger.exception("Failed to store edit memory: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to store edit memory: {str(exc)}",
+        ) from exc
+
+
 @app.get("/health")
 async def health() -> Dict[str, Any]:
     return {"status": "ok"}

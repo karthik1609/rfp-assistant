@@ -97,6 +97,7 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
   const [htmlContent, setHtmlContent] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [notification, setNotification] = useState(null) // For non-blocking notifications
   const [isSaving, setIsSaving] = useState(false)
   const [filename, setFilename] = useState('')
   const [filenameError, setFilenameError] = useState(null)
@@ -109,6 +110,10 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
   const contentRef = useRef(null)
   const originalHtmlRef = useRef('')
   const originalTextRef = useRef('')
+  const isUpdatingContentRef = useRef(false)
+  const contentInitializedRef = useRef(false)
+  const scrollPositionRef = useRef({ x: 0, y: 0 })
+  const savedSelectionRef = useRef(null) // Store selection for table insertion
   
   // Standard colors for color picker
   const standardColors = [
@@ -201,6 +206,11 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
         originalTextRef.current = tempDiv.textContent || tempDiv.innerText || ''
         setLoading(false)
         
+        // Mark content as initialized after React renders it
+        setTimeout(() => {
+          contentInitializedRef.current = true
+        }, 50)
+        
         // Setup resize for existing tables after content is loaded
         setTimeout(() => {
           if (contentRef.current) {
@@ -264,6 +274,48 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
       })
   }, [docxBlob])
 
+  // Set initial content when htmlContent is available and not yet initialized
+  useEffect(() => {
+    if (htmlContent && contentRef.current && !contentInitializedRef.current && !loading) {
+      contentRef.current.innerHTML = htmlContent
+      contentInitializedRef.current = true
+    }
+  }, [htmlContent, loading])
+
+  // Handle modal open/close and scroll position
+  useEffect(() => {
+    if (showTableModal) {
+      // Prevent body scroll
+      const originalOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      
+      // Focus input after modal renders (without scrolling)
+      const timer = setTimeout(() => {
+        const input = document.getElementById('table-rows')
+        if (input) {
+          input.focus({ preventScroll: true })
+        }
+      }, 100)
+      
+      return () => {
+        clearTimeout(timer)
+        // Restore body scroll
+        document.body.style.overflow = originalOverflow
+        
+        // Restore scroll position after a brief delay
+        setTimeout(() => {
+          if (contentRef.current && scrollPositionRef.current.y !== undefined) {
+            contentRef.current.scrollTop = scrollPositionRef.current.y
+            contentRef.current.scrollLeft = scrollPositionRef.current.x
+          }
+          if (scrollPositionRef.current.bodyY !== undefined) {
+            window.scrollTo(0, scrollPositionRef.current.bodyY)
+          }
+        }, 50)
+      }
+    }
+  }, [showTableModal])
+
   // Helper function to extract plain text from HTML
   const extractTextFromHtml = (html) => {
     const tempDiv = document.createElement('div')
@@ -271,108 +323,83 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
     return tempDiv.textContent || tempDiv.innerText || ''
   }
 
-  // Helper function to detect meaningful changes (not just whitespace/formatting)
-  const detectChanges = (originalText, editedText) => {
-    const changes = []
-    
-    // Simple word-level diff for now - can be enhanced with more sophisticated diffing
-    const originalWords = originalText.split(/\s+/).filter(w => w.length > 0)
-    const editedWords = editedText.split(/\s+/).filter(w => w.length > 0)
-    
-    // Find additions, deletions, and modifications
-    let origIdx = 0
-    let editIdx = 0
-    const maxLength = Math.max(originalWords.length, editedWords.length)
-    
-    while (origIdx < originalWords.length || editIdx < editedWords.length) {
-      if (origIdx >= originalWords.length) {
-        // Addition
-        changes.push({
-          type: 'addition',
-          original: '',
-          edited: editedWords[editIdx],
-          context: editedWords.slice(Math.max(0, editIdx - 3), editIdx + 4).join(' ')
-        })
-        editIdx++
-      } else if (editIdx >= editedWords.length) {
-        // Deletion
-        changes.push({
-          type: 'deletion',
-          original: originalWords[origIdx],
-          edited: '',
-          context: originalWords.slice(Math.max(0, origIdx - 3), origIdx + 4).join(' ')
-        })
-        origIdx++
-      } else if (originalWords[origIdx].toLowerCase() === editedWords[editIdx].toLowerCase()) {
-        // Same word, check for capitalization changes
-        if (originalWords[origIdx] !== editedWords[editIdx]) {
-          changes.push({
-            type: 'capitalization',
-            original: originalWords[origIdx],
-            edited: editedWords[editIdx],
-            context: editedWords.slice(Math.max(0, editIdx - 3), editIdx + 4).join(' ')
-          })
-        }
-        origIdx++
-        editIdx++
+  // Helper function to split text into sentences
+  const splitIntoSentences = (text) => {
+    // Split by sentence endings, but keep the punctuation
+    const sentences = text.split(/([.!?]\s+)/).filter(s => s.trim().length > 0)
+    const result = []
+    for (let i = 0; i < sentences.length; i += 2) {
+      if (i + 1 < sentences.length) {
+        result.push((sentences[i] + sentences[i + 1]).trim())
       } else {
-        // Different word - could be modification
-        // Try to find matching word nearby
-        let found = false
-        for (let i = editIdx; i < Math.min(editIdx + 5, editedWords.length); i++) {
-          if (originalWords[origIdx].toLowerCase() === editedWords[i].toLowerCase()) {
-            // Words in between are additions
-            for (let j = editIdx; j < i; j++) {
-              changes.push({
-                type: 'addition',
-                original: '',
-                edited: editedWords[j],
-                context: editedWords.slice(Math.max(0, j - 3), j + 4).join(' ')
-              })
-            }
-            editIdx = i + 1
-            origIdx++
-            found = true
-            break
-          }
-        }
-        if (!found) {
-          // Check if it's a modification (similar length)
-          if (Math.abs(originalWords[origIdx].length - editedWords[editIdx].length) < 3) {
-            changes.push({
-              type: 'modification',
-              original: originalWords[origIdx],
-              edited: editedWords[editIdx],
-              context: editedWords.slice(Math.max(0, editIdx - 3), editIdx + 4).join(' ')
-            })
-          } else {
-            // Treat as deletion + addition
-            changes.push({
-              type: 'deletion',
-              original: originalWords[origIdx],
-              edited: '',
-              context: originalWords.slice(Math.max(0, origIdx - 3), origIdx + 4).join(' ')
-            })
-            changes.push({
-              type: 'addition',
-              original: '',
-              edited: editedWords[editIdx],
-              context: editedWords.slice(Math.max(0, editIdx - 3), editIdx + 4).join(' ')
+        result.push(sentences[i].trim())
+      }
+    }
+    return result.filter(s => s.length > 0)
+  }
+
+  // Helper function to detect meaningful changes and extract only changed sentences
+  const detectChanges = (originalText, editedText) => {
+    // Split into sentences
+    const originalSentences = splitIntoSentences(originalText)
+    const editedSentences = splitIntoSentences(editedText)
+    
+    const changedSentences = []
+    
+    // Compare sentences - if they differ, mark as changed
+    // Use a simple approach: compare sentence by sentence, and also check for sentences that were added/removed
+    const maxSentences = Math.max(originalSentences.length, editedSentences.length)
+    
+    for (let i = 0; i < maxSentences; i++) {
+      const origSentence = originalSentences[i] || ''
+      const editedSentence = editedSentences[i] || ''
+      
+      // If sentences differ, include them
+      if (origSentence !== editedSentence) {
+        // Only include if at least one sentence exists and they're meaningfully different
+        if (origSentence.trim() || editedSentence.trim()) {
+          // Check if it's more than just whitespace differences
+          const origClean = origSentence.replace(/\s+/g, ' ').trim()
+          const editedClean = editedSentence.replace(/\s+/g, ' ').trim()
+          
+          if (origClean !== editedClean) {
+            changedSentences.push({
+              original_sentence: origSentence.trim(),
+              edited_sentence: editedSentence.trim(),
+              sentence_index: i
             })
           }
-          origIdx++
-          editIdx++
         }
       }
     }
     
-    return changes.filter(change => {
-      // Filter out trivial changes (only whitespace, only punctuation)
-      if (change.type === 'capitalization') return true
-      if (change.type === 'modification' && change.original.toLowerCase() === change.edited.toLowerCase()) return false
-      if (change.original.trim().length === 0 && change.edited.trim().length === 0) return false
-      return true
-    })
+    // Also check for sentences that were completely added or removed
+    // (beyond the length of the shorter array)
+    if (originalSentences.length > editedSentences.length) {
+      // Some sentences were removed
+      for (let i = editedSentences.length; i < originalSentences.length; i++) {
+        if (originalSentences[i].trim()) {
+          changedSentences.push({
+            original_sentence: originalSentences[i].trim(),
+            edited_sentence: '',
+            sentence_index: i
+          })
+        }
+      }
+    } else if (editedSentences.length > originalSentences.length) {
+      // Some sentences were added
+      for (let i = originalSentences.length; i < editedSentences.length; i++) {
+        if (editedSentences[i].trim()) {
+          changedSentences.push({
+            original_sentence: '',
+            edited_sentence: editedSentences[i].trim(),
+            sentence_index: i
+          })
+        }
+      }
+    }
+    
+    return changedSentences
   }
 
   const handleSave = async () => {
@@ -398,21 +425,19 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
       
       // Detect changes and store them as memories
       if (originalTextRef.current && editedText !== originalTextRef.current) {
-        const changes = detectChanges(originalTextRef.current, editedText)
+        const sentenceChanges = detectChanges(originalTextRef.current, editedText)
         
-        if (changes.length > 0) {
+        if (sentenceChanges.length > 0) {
           try {
-            // Store edit memory with context
+            // Store edit memory with only changed sentences (much more token-efficient)
             await storeEditMemory({
-              original_text: originalTextRef.current.substring(0, 5000), // Limit size
-              edited_text: editedText.substring(0, 5000),
-              changes: changes.slice(0, 50), // Limit number of changes
+              changed_sentences: sentenceChanges.slice(0, 50), // Limit number of changed sentences
               requirements_context: requirements ? {
                 solution_requirements_count: requirements.solution_requirements?.length || 0,
                 response_structure_requirements_count: requirements.response_structure_requirements?.length || 0,
               } : null,
             })
-            console.log(`Stored ${changes.length} edit changes as memory`)
+            console.log(`Stored ${sentenceChanges.length} changed sentences as memory`)
           } catch (err) {
             console.warn('Failed to store edit memory:', err)
             // Don't fail the save if memory storage fails
@@ -520,11 +545,111 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
     contentRef.current?.focus()
   }
 
-  const handleInsertTable = () => {
+  const handleInsertTable = (e) => {
+    console.log('handleInsertTable called', { e, showTableModal })
+    
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    
+    // Store current scroll position
+    if (contentRef.current) {
+      scrollPositionRef.current = {
+        x: contentRef.current.scrollLeft || 0,
+        y: contentRef.current.scrollTop || 0
+      }
+    }
+    
+    // Store body scroll position
+    scrollPositionRef.current.bodyY = window.scrollY || document.documentElement.scrollTop || 0
+    
+    if (!contentRef.current) {
+      savedSelectionRef.current = null
+    } else {
+      const selection = window.getSelection()
+      
+      // First, try to get the current selection
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0)
+        // Check if the selection is within our contentEditable div
+        const container = range.commonAncestorContainer
+        const isInContentEditable = contentRef.current.contains(container) || 
+                                    container === contentRef.current ||
+                                    (container.nodeType === Node.TEXT_NODE && contentRef.current.contains(container.parentElement))
+        
+        if (isInContentEditable) {
+          // Clone the range to save it
+          try {
+            savedSelectionRef.current = range.cloneRange()
+            console.log('Saved selection range from current selection')
+          } catch (err) {
+            console.warn('Failed to clone range:', err)
+            savedSelectionRef.current = null
+          }
+        } else {
+          // Selection is outside contentEditable
+          savedSelectionRef.current = null
+        }
+      }
+      
+      // If we don't have a saved selection, try to find the last edit position
+      if (!savedSelectionRef.current) {
+        try {
+          // Try to find the last meaningful position in the content
+          // Look for the last text node or element
+          const allNodes = []
+          const walker = document.createTreeWalker(
+            contentRef.current,
+            NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+            null
+          )
+          
+          let node
+          while (node = walker.nextNode()) {
+            if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+              allNodes.push({ node, type: 'text', length: node.textContent.length })
+            } else if (node.nodeType === Node.ELEMENT_NODE && node.tagName !== 'BR') {
+              allNodes.push({ node, type: 'element' })
+            }
+          }
+          
+          if (allNodes.length > 0) {
+            const lastNode = allNodes[allNodes.length - 1]
+            const endRange = document.createRange()
+            if (lastNode.type === 'text') {
+              endRange.setStart(lastNode.node, lastNode.length)
+            } else {
+              endRange.setStartAfter(lastNode.node)
+            }
+            endRange.collapse(true)
+            savedSelectionRef.current = endRange
+            console.log('Saved range at last node position')
+          } else {
+            // Fallback: create range at end of contentEditable
+            const endRange = document.createRange()
+            endRange.selectNodeContents(contentRef.current)
+            endRange.collapse(false) // Collapse to end
+            savedSelectionRef.current = endRange
+            console.log('Saved end range as final fallback')
+          }
+        } catch (err) {
+          console.warn('Could not save selection:', err)
+          savedSelectionRef.current = null
+        }
+      }
+    }
+    
+    // Prevent body scroll when modal opens
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    
     setTableRows('3')
     setTableCols('3')
     setTableError(null)
     setShowTableModal(true)
+    
+    console.log('Modal state set to true')
   }
 
   const handleConfirmTable = () => {
@@ -537,103 +662,157 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
     }
     
     setTableError(null)
+    // Restore body scroll before closing modal
+    document.body.style.overflow = ''
     setShowTableModal(false)
     
+    if (!contentRef.current) {
+      setTableError('Document editor not ready. Please try again.')
+      setShowTableModal(true)
+      return
+    }
+    
     try {
-        const table = document.createElement('table')
-        table.className = 'editable-table'
-        table.style.borderCollapse = 'collapse'
-        table.style.width = '100%'
-        table.style.margin = '12pt 0'
-        table.style.tableLayout = 'fixed' // Fixed layout for resizable columns
-        
-        for (let i = 0; i < parseInt(rows); i++) {
-          const tr = document.createElement('tr')
-          for (let j = 0; j < parseInt(cols); j++) {
-            const td = document.createElement('td')
-            td.className = 'editable-table-cell'
-            td.style.border = '1px solid #d1d5db'
-            td.style.padding = '8pt'
-            td.style.verticalAlign = 'top'
-            td.style.position = 'relative'
-            td.innerHTML = '&nbsp;'
-            
-            // Add resize handle
-            const resizeHandle = document.createElement('div')
-            resizeHandle.className = 'table-resize-handle'
-            resizeHandle.style.cssText = `
-              position: absolute;
-              top: 0;
-              right: -3px;
-              width: 6px;
-              height: 100%;
-              cursor: col-resize;
-              z-index: 10;
-              background: transparent;
-            `
-            td.appendChild(resizeHandle)
-            
-            tr.appendChild(td)
-          }
-          table.appendChild(tr)
+      // Create the table
+      const table = document.createElement('table')
+      table.className = 'editable-table'
+      table.style.borderCollapse = 'collapse'
+      table.style.width = '100%'
+      table.style.margin = '12pt 0'
+      table.style.tableLayout = 'fixed'
+      
+      // Create rows and cells
+      for (let i = 0; i < rows; i++) {
+        const tr = document.createElement('tr')
+        for (let j = 0; j < cols; j++) {
+          const td = document.createElement('td')
+          td.className = 'editable-table-cell'
+          td.style.border = '1px solid #d1d5db'
+          td.style.padding = '8pt'
+          td.style.verticalAlign = 'top'
+          td.style.position = 'relative'
+          td.innerHTML = '&nbsp;'
+          
+          // Add resize handle
+          const resizeHandle = document.createElement('div')
+          resizeHandle.className = 'table-resize-handle'
+          resizeHandle.style.cssText = `
+            position: absolute;
+            top: 0;
+            right: -3px;
+            width: 6px;
+            height: 100%;
+            cursor: col-resize;
+            z-index: 10;
+            background: transparent;
+          `
+          td.appendChild(resizeHandle)
+          tr.appendChild(td)
         }
-        
-        const selection = window.getSelection()
-        let inserted = false
-        
-        if (selection.rangeCount > 0) {
-          try {
-            const range = selection.getRangeAt(0)
-            // Check if we're inside a table - if so, insert after it
-            let container = range.commonAncestorContainer
-            if (container.nodeType === Node.TEXT_NODE) {
-              container = container.parentElement
-            }
+        table.appendChild(tr)
+      }
+      
+      // Restore focus to contentEditable
+      if (contentRef.current) {
+        contentRef.current.focus()
+      }
+      
+      // Get the selection object
+      const selection = window.getSelection()
+      
+      // Use the saved selection range if available
+      let inserted = false
+      if (savedSelectionRef.current && contentRef.current) {
+        try {
+          const savedRange = savedSelectionRef.current
+          const container = savedRange.commonAncestorContainer
+          
+          if (contentRef.current.contains(container) || container === contentRef.current) {
+            selection.removeAllRanges()
+            selection.addRange(savedRange)
             
-            // Find if we're inside a table
-            let tableParent = container
-            while (tableParent && tableParent.tagName !== 'TABLE' && tableParent !== contentRef.current) {
-              tableParent = tableParent.parentElement
-            }
-            
-            if (tableParent && tableParent.tagName === 'TABLE') {
-              // Insert after the table
-              if (tableParent.nextSibling) {
-                tableParent.parentNode?.insertBefore(table, tableParent.nextSibling)
-              } else {
-                tableParent.parentNode?.appendChild(table)
-              }
-            } else {
-              // Normal insertion
-              range.deleteContents()
-              range.insertNode(table)
-            }
+            savedRange.insertNode(table)
             inserted = true
+            
+            const newRange = document.createRange()
+            newRange.setStartAfter(table)
+            newRange.collapse(true)
+            selection.removeAllRanges()
+            selection.addRange(newRange)
+            
+            console.log('Table inserted at saved cursor position')
+          } else {
+            console.warn('Saved range is no longer valid, using fallback')
+          }
+        } catch (err) {
+          console.warn('Failed to use saved range:', err)
+        }
+      }
+      
+      if (!inserted && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0)
+        
+        // Check if range is within our contentEditable div
+        if (contentRef.current && contentRef.current.contains(range.commonAncestorContainer)) {
+          try {
+            // Insert table at cursor position
+            range.insertNode(table)
+            inserted = true
+            
+            // Move cursor after the table
+            const newRange = document.createRange()
+            newRange.setStartAfter(table)
+            newRange.collapse(true)
+            selection.removeAllRanges()
+            selection.addRange(newRange)
+            
+            console.log('Table inserted at current selection')
           } catch (err) {
-            console.warn('Error inserting table at selection:', err)
+            console.warn('Failed to insert at current selection:', err)
           }
         }
-        
-        if (!inserted) {
-          // Fallback: append to content
-          if (contentRef.current) {
+      }
+      
+      // Final fallback: Insert at end of content
+      if (!inserted) {
+        console.log('Using fallback: inserting at end')
+        // Create a paragraph if content is empty
+        if (!contentRef.current.hasChildNodes() || contentRef.current.textContent.trim() === '') {
+          const p = document.createElement('p')
+          p.appendChild(table)
+          contentRef.current.appendChild(p)
+        } else {
+          // Insert after last child or append
+          const lastChild = contentRef.current.lastElementChild || contentRef.current.lastChild
+          if (lastChild && lastChild.nodeType === Node.ELEMENT_NODE) {
+            // Insert after last element
+            const p = document.createElement('p')
+            p.appendChild(table)
+            contentRef.current.appendChild(p)
+          } else {
             contentRef.current.appendChild(table)
           }
         }
         
-        // Add resize functionality
+        // Set cursor after table
+        const newRange = document.createRange()
+        newRange.setStartAfter(table)
+        newRange.collapse(true)
+        selection.removeAllRanges()
+        selection.addRange(newRange)
+      }
+      
+      // Clear saved selection after use
+      savedSelectionRef.current = null
+      
+      // Setup resize functionality
+      setTimeout(() => {
         setupTableResize(table)
-        
-        // Move cursor after table
-        if (contentRef.current) {
-          const newRange = document.createRange()
-          newRange.setStartAfter(table)
-          newRange.collapse(true)
-          const sel = window.getSelection()
-          sel.removeAllRanges()
-          sel.addRange(newRange)
-          contentRef.current.focus()
-        }
+      }, 0)
+      
+      // Focus the editor
+      contentRef.current.focus()
+      
     } catch (err) {
       console.error('Error inserting table:', err)
       setTableError('Failed to insert table. Please try again.')
@@ -663,12 +842,12 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
         setShowColorPicker(true)
       } else {
         // Show error notification
-        setError('Please select text inside a table cell first.')
-        setTimeout(() => setError(null), 3000)
+        setNotification('Please select text inside a table cell first.')
+        setTimeout(() => setNotification(null), 3000)
       }
     } else {
-      setError('Please select text inside a table cell first.')
-      setTimeout(() => setError(null), 3000)
+      setNotification('Please select text inside a table cell first.')
+      setTimeout(() => setNotification(null), 3000)
     }
     contentRef.current?.focus()
   }
@@ -679,8 +858,8 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
       setColorPickerType('text')
       setShowColorPicker(true)
     } else {
-      setError('Please select text to change its color.')
-      setTimeout(() => setError(null), 3000)
+      setNotification('Please select text to change its color.')
+      setTimeout(() => setNotification(null), 3000)
     }
     contentRef.current?.focus()
   }
@@ -703,28 +882,24 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
         }
         
         if (cell && (cell.tagName === 'TD' || cell.tagName === 'TH')) {
-          if (color === '') {
-            cell.style.backgroundColor = ''
-          } else {
-            cell.style.backgroundColor = color
+          cell.style.backgroundColor = color
+        }
+      }
+      } else if (colorPickerType === 'text') {
+        if (selection.rangeCount > 0 && selection.toString().trim()) {
+          const range = selection.getRangeAt(0)
+          const span = document.createElement('span')
+          span.style.color = color
+          try {
+            range.surroundContents(span)
+          } catch (e) {
+            // If surroundContents fails, try a different approach
+            const contents = range.extractContents()
+            span.appendChild(contents)
+            range.insertNode(span)
           }
         }
       }
-    } else if (colorPickerType === 'text') {
-      if (selection.rangeCount > 0 && selection.toString().trim()) {
-        const range = selection.getRangeAt(0)
-        const span = document.createElement('span')
-        span.style.color = color || ''
-        try {
-          range.surroundContents(span)
-        } catch (e) {
-          // If surroundContents fails, try a different approach
-          const contents = range.extractContents()
-          span.appendChild(contents)
-          range.insertNode(span)
-        }
-      }
-    }
     
     setShowColorPicker(false)
     setColorPickerType(null)
@@ -830,7 +1005,6 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
         <h2>RFP Response Document</h2>
         <div className="document-viewer-actions">
           <div className="filename-input-group">
-            <label htmlFor="filename-input" className="filename-label">Filename:</label>
             <div className="filename-input-wrapper">
               <input
                 id="filename-input"
@@ -844,22 +1018,24 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
                 <span className="filename-error-message">{filenameError}</span>
               )}
             </div>
+            <div className="filename-actions">
+              <Button 
+                onClick={handleDownload}
+                variant="secondary"
+                disabled={!docxBlob || (filename.trim() && filenameError)}
+              >
+                Download
+              </Button>
+              {onSave && (
+                <Button 
+                  onClick={handleSave}
+                  disabled={!docxBlob || isSaving || (filename.trim() && filenameError)}
+                >
+                  {isSaving ? 'Saving...' : 'Save to Output Folder'}
+                </Button>
+              )}
+            </div>
           </div>
-          <Button 
-            onClick={handleDownload}
-            variant="secondary"
-            disabled={!docxBlob || (filename.trim() && filenameError)}
-          >
-            Download
-          </Button>
-          {onSave && (
-            <Button 
-              onClick={handleSave}
-              disabled={!docxBlob || isSaving || (filename.trim() && filenameError)}
-            >
-              {isSaving ? 'Saving...' : 'Save to Output Folder'}
-            </Button>
-          )}
           {onClose && (
             <button className="close-btn" onClick={onClose}>×</button>
           )}
@@ -931,6 +1107,10 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
             type="button"
             className="toolbar-btn"
             onClick={handleInsertTable}
+            onMouseDown={(e) => {
+              // Prevent any default behavior on mousedown
+              e.preventDefault()
+            }}
             title="Insert table"
           >
             <TableIcon />
@@ -961,7 +1141,6 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
         className="document-viewer-content"
         contentEditable={true}
         suppressContentEditableWarning={true}
-        dangerouslySetInnerHTML={{ __html: htmlContent }}
         onKeyDown={(e) => {
           // Handle Ctrl+B for bold
           if (e.ctrlKey && e.key === 'b') {
@@ -969,15 +1148,67 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
             handleFormat('bold')
           }
         }}
+        onMouseUp={() => {
+          // Save selection whenever user clicks in the editor
+          const selection = window.getSelection()
+          if (selection.rangeCount > 0 && contentRef.current) {
+            const range = selection.getRangeAt(0)
+            const container = range.commonAncestorContainer
+            if (contentRef.current.contains(container) || container === contentRef.current) {
+              try {
+                savedSelectionRef.current = range.cloneRange()
+              } catch (err) {
+                // Ignore errors
+              }
+            }
+          }
+        }}
+        onKeyUp={() => {
+          // Save selection whenever user types or moves cursor
+          const selection = window.getSelection()
+          if (selection.rangeCount > 0 && contentRef.current) {
+            const range = selection.getRangeAt(0)
+            const container = range.commonAncestorContainer
+            if (contentRef.current.contains(container) || container === contentRef.current) {
+              try {
+                savedSelectionRef.current = range.cloneRange()
+              } catch (err) {
+                // Ignore errors
+              }
+            }
+          }
+        }}
       />
       
       {/* Table Dimensions Modal */}
       {showTableModal && (
-        <div className="modal-overlay" onClick={() => setShowTableModal(false)}>
+        <div 
+          className="modal-overlay" 
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            // Restore body scroll before closing
+            document.body.style.overflow = ''
+            setShowTableModal(false)
+          }}
+          onMouseDown={(e) => {
+            // Prevent any scroll when clicking overlay
+            e.preventDefault()
+          }}
+        >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Insert Table</h3>
-              <button className="modal-close" onClick={() => setShowTableModal(false)}>×</button>
+              <button 
+                className="modal-close" 
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  // Restore body scroll before closing
+                  document.body.style.overflow = ''
+                  setShowTableModal(false)
+                }}
+              >×</button>
             </div>
             <div className="modal-body">
               <div className="modal-input-group">
@@ -993,7 +1224,6 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
                     setTableError(null)
                   }}
                   className="modal-input"
-                  autoFocus
                 />
               </div>
               <div className="modal-input-group">
@@ -1016,10 +1246,25 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
               )}
             </div>
             <div className="modal-footer">
-              <Button variant="secondary" onClick={() => setShowTableModal(false)}>
+              <Button 
+                variant="secondary" 
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  // Restore body scroll before closing
+                  document.body.style.overflow = ''
+                  setShowTableModal(false)
+                }}
+              >
                 Cancel
               </Button>
-              <Button onClick={handleConfirmTable}>
+              <Button 
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  handleConfirmTable()
+                }}
+              >
                 Insert Table
               </Button>
             </div>
@@ -1043,16 +1288,6 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
             </div>
             <div className="color-picker-body">
               <div className="color-grid">
-                <button
-                  className="color-option"
-                  onClick={() => handleColorSelect('')}
-                  title="Remove color"
-                >
-                  <div className="color-box" style={{ background: 'transparent', border: '2px solid var(--border-subtle)' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>×</span>
-                  </div>
-                  <span className="color-name">None</span>
-                </button>
                 {standardColors.map((color) => (
                   <button
                     key={color.value}
@@ -1075,6 +1310,14 @@ export default function DocumentViewer({ docxBlob, onSave, onClose, requirements
         <div className="notification error-notification">
           <span>{error}</span>
           <button onClick={() => setError(null)}>×</button>
+        </div>
+      )}
+      
+      {/* General Notification (non-blocking) */}
+      {notification && (
+        <div className="notification error-notification">
+          <span>{notification}</span>
+          <button onClick={() => setNotification(null)}>×</button>
         </div>
       )}
     </div>

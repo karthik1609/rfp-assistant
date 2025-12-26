@@ -209,6 +209,67 @@ def store_build_query_result(source_text: str, build_query_payload: Dict[str, An
         logger.warning("Mem0: failed to store build-query record for user_id=%s", user_hash[:12])
     return ok
 
+#function to build stored messages for an edit memory payload
+def _build_edit_memory_messages(edit_payload: Dict[str, Any]) -> list[Dict[str, str]]:
+    changed_sentences = edit_payload.get("changed_sentences") or []
+    req_context = edit_payload.get("requirements_context") or {}
+    
+    sentence_changes = []
+    for sent_change in changed_sentences[:30]:
+        original = str(sent_change.get("original_sentence", "")).strip()
+        edited = str(sent_change.get("edited_sentence", "")).strip()
+        if original and edited and original != edited:
+            sentence_changes.append({
+                "original": original[:500],
+                "edited": edited[:500],
+            })
+    
+    snapshot = {
+        "summary": "User edit corrections to RFP response (changed sentences only)",
+        "changed_sentences_count": len(changed_sentences),
+        "sentence_changes": sentence_changes,
+        "requirements_context": req_context,
+    }
+    
+    return [
+        {"role": "user", "content": "USER EDIT CORRECTIONS TO RFP RESPONSE"},
+        {"role": "assistant", "content": json.dumps(snapshot)},
+    ]
+
+#function to store edit memory into local memory
+def store_edit_memory(source_text: str, edit_payload: Dict[str, Any]) -> bool:
+    if not source_text:
+        logger.debug("Mem0: no source text supplied; skipping edit memory storage")
+        return False
+
+    try:
+        user_hash = hashlib.sha256(source_text.encode("utf-8")).hexdigest()
+    except Exception as exc:
+        logger.warning("Failed to hash source text for Mem0 edit memory storage: %s", exc)
+        return False
+
+    metadata = {
+        "stage": "edit_memory",
+        "source": "rfp-assistant",
+        "changed_sentences_count": len(edit_payload.get("changed_sentences") or []),
+    }
+
+    messages = _build_edit_memory_messages(edit_payload)
+
+    record: Dict[str, Any] = {
+        "user_id": user_hash,
+        "stage": metadata["stage"],
+        "metadata": metadata,
+        "messages": messages,
+    }
+    ok = _append_record(record)
+    if ok:
+        logger.info("Mem0: stored edit memory record for user_id=%s with %d changed sentences at %s", 
+                   user_hash[:12], len(edit_payload.get("changed_sentences") or []), STORE_PATH)
+    else:
+        logger.warning("Mem0: failed to store edit memory record for user_id=%s", user_hash[:12])
+    return ok
+
 #function to tokenize text into lowercase word tokens
 def _tokenize(text: str) -> list[str]:
     if not text:

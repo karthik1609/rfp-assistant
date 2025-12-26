@@ -107,6 +107,8 @@ def run_response_agent(
     struct_summary = build_query.response_structure_requirements_summary
 
     retrieved_memories: List[Dict[str, Any]] = []
+    retrieved_edit_memories: List[Dict[str, Any]] = []
+    
     try:
         clarity = _clarity_check(req_summary or "", struct_summary or None)
         logger.info("Clarity check result: %s (questions=%d)", clarity.get("clarity"), len(clarity.get("questions") or []))
@@ -140,6 +142,20 @@ def run_response_agent(
         except Exception as mem_exc:
             logger.warning("Local memory search failed (fallback): %s", mem_exc)
     
+    try:
+        search_query = req_summary or build_query.query_text or ""
+        if search_query:
+            retrieved_edit_memories = search_memories(search_query, max_results=3, stage="edit_memory")
+            if retrieved_edit_memories:
+                ids_scores = []
+                for m in retrieved_edit_memories:
+                    uid = (m.get("user_id") or "")[:12]
+                    score = m.get("score") or 0.0
+                    ids_scores.append(f"{uid}:{score:.3f}")
+                logger.info("Included %d edit memory snippets in prompt (ids/scores=%s)", len(retrieved_edit_memories), ",".join(ids_scores))
+    except Exception as edit_mem_exc:
+        logger.warning("Edit memory search failed: %s", edit_mem_exc)
+    
     user_prompt_parts = [
         f"REQUIREMENT TO ADDRESS:",
         req_summary,
@@ -172,6 +188,42 @@ def run_response_agent(
             piece = snippet or (msg_content[:1000])
             user_prompt_parts.append(f"MEMORY (score={score:.3f}): {piece}")
             user_prompt_parts.append("")
+    
+    if retrieved_edit_memories:
+        user_prompt_parts.extend([
+            "=" * 80,
+            "USER EDIT MEMORIES - Learn from past corrections (CRITICAL - apply these patterns):",
+            "=" * 80,
+        ])
+        for mem in retrieved_edit_memories:
+            score = mem.get("score")
+            messages = mem.get("messages") or []
+            msg_content = "".join([str(m.get("content") or "") for m in messages])
+            try:
+                import json
+                content_str = str(messages[1].get("content", "") if len(messages) > 1 else "")
+                if content_str:
+                    edit_data = json.loads(content_str)
+                    sentence_changes = edit_data.get("sentence_changes", [])
+                    if sentence_changes:
+                        user_prompt_parts.append(f"EDIT MEMORY (score={score:.3f}):")
+                        user_prompt_parts.append("The user previously corrected these sentences:")
+                        for sent_change in sentence_changes[:10]:
+                            original = sent_change.get("original", "")
+                            edited = sent_change.get("edited", "")
+                            if original and edited:
+                                user_prompt_parts.append(f"  Original: {original}")
+                                user_prompt_parts.append(f"  Corrected: {edited}")
+                                user_prompt_parts.append("")
+                        user_prompt_parts.append("IMPORTANT: Apply similar corrections in your response. Pay attention to:")
+                        user_prompt_parts.append("  - Capitalization of names, terms, and proper nouns")
+                        user_prompt_parts.append("  - Specific terminology the user prefers")
+                        user_prompt_parts.append("  - Content additions or modifications the user made")
+                        user_prompt_parts.append("")
+            except Exception:
+                piece = msg_content[:1500]
+                user_prompt_parts.append(f"EDIT MEMORY (score={score:.3f}): {piece}")
+                user_prompt_parts.append("")
     
     if qa_context:
         user_prompt_parts.extend([
