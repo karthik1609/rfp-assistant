@@ -113,8 +113,14 @@ def setup_styles(doc):
             h.paragraph_format.space_before = Pt(12 if level <= 2 else 8)
             h.paragraph_format.space_after = Pt(6)
             h.paragraph_format.keep_with_next = True
+            h.paragraph_format.widow_control = True
+            h.paragraph_format.keep_together = True
+            if level <= 2:
+                h.paragraph_format.space_before = Pt(18)
         except KeyError:
             logger.warning(f"Heading {level} style not found, skipping")
+        except Exception as e:
+            logger.warning(f"Failed to set heading {level} properties: {e}")
     
     try:
         list_bullet = doc.styles["List Bullet"]
@@ -432,6 +438,15 @@ def _start_table(doc, header_cells: List[str]):
             current_table.style = 'Grid Table 1 Light'
         except:
             pass
+    
+    try:
+        header_row = current_table.rows[0]
+        tr = header_row._tr
+        trPr = tr.get_or_add_trPr()
+        tblHeader = OxmlElement('w:tblHeader')
+        trPr.append(tblHeader)
+    except Exception as e:
+        logger.warning(f"Failed to set table header row property: {e}")
     
     header_row_cells = current_table.rows[0].cells
     for col_idx, cell_text in enumerate(header_cells):
@@ -839,6 +854,21 @@ def _capitalize_sentence(text: str) -> str:
         return text[0].upper() + text[1:]
     return text
 
+#function to add a heading with proper page break control
+def _add_heading_with_break_control(doc, text: str, level: int):
+    """Add a heading with page break control to prevent orphaned headings"""
+    heading = doc.add_heading(text, level)
+    try:
+        heading.paragraph_format.keep_with_next = True
+        heading.paragraph_format.widow_control = True
+        heading.paragraph_format.keep_together = True
+        if level <= 2:
+            heading.paragraph_format.space_before = Pt(18)
+        
+    except Exception as e:
+        logger.debug(f"Failed to set heading break properties: {e}")
+
+
 #function to convert a single markdown line into appropriate DOCX elements
 def _add_text_line(doc, line: str):
     stripped = line.strip()
@@ -851,19 +881,19 @@ def _add_text_line(doc, line: str):
     if stripped.startswith('#### '):
         header_text = _clean_markdown_text(stripped[5:])
         if header_text:
-            doc.add_heading(header_text, 4)
+            _add_heading_with_break_control(doc, header_text, 4)
     elif stripped.startswith('### '):
         header_text = _clean_markdown_text(stripped[4:])
         if header_text:
-            doc.add_heading(header_text, 3)
+            _add_heading_with_break_control(doc, header_text, 3)
     elif stripped.startswith('## '):
         header_text = _clean_markdown_text(stripped[3:])
         if header_text:
-            doc.add_heading(header_text, 2)
+            _add_heading_with_break_control(doc, header_text, 2)
     elif stripped.startswith('# '):
         header_text = _clean_markdown_text(stripped[2:])
         if header_text:
-            doc.add_heading(header_text, 1)
+            _add_heading_with_break_control(doc, header_text, 1)
     else:
         content = _clean_markdown_text(stripped)
         if content:
@@ -939,7 +969,7 @@ def generate_rfp_docx(
         p = para._element
         p.getparent().remove(p)
     
-    doc.add_heading("Table of Contents", 1)
+    _add_heading_with_break_control(doc, "Table of Contents", 1)
     doc.add_paragraph()
     
     add_manual_toc(doc, toc_entries)
@@ -975,7 +1005,7 @@ def generate_rfp_docx(
     fld.set(qn('w:instr'), 'PAGE')
     run._r.append(fld)
     
-    doc.add_heading("Company Overview", 1)
+    _add_heading_with_break_control(doc, "Company Overview", 1)
     overview_text = """At fusionAIx, we believe that the future of digital transformation lies in the seamless blend of low-code platforms and artificial intelligence. Our core team brings together decades of implementation experience, domain expertise, and a passion for innovation. We partner with enterprises to reimagine processes, accelerate application delivery, and unlock new levels of efficiency. We help businesses scale smarter, faster, and with greater impact.
 
 With a collaborative spirit and a commitment to excellence, our team transforms complex challenges into intelligent, practical solutions. fusionAIx is not just about technology—it's about empowering people, industries, and enterprises to thrive in a digital-first world.
@@ -1002,9 +1032,9 @@ We support clients across diverse industries including Insurance, Banking & Fina
         response_text = individual_responses[0].get('response', '')
         _parse_markdown_to_docx(doc, response_text)
     else:
-        doc.add_heading("Solution Requirement Responses", 1)
+        _add_heading_with_break_control(doc, "Solution Requirement Responses", 1)
         for idx, resp_data in enumerate(individual_responses, 1):
-            req_heading = doc.add_heading(f"Requirement {idx}: {resp_data.get('requirement_id', 'N/A')}", 2)
+            _add_heading_with_break_control(doc, f"Requirement {idx}: {resp_data.get('requirement_id', 'N/A')}", 2)
             
             req_para = doc.add_paragraph()
             req_para.add_run("Requirement: ").bold = True
@@ -1012,7 +1042,7 @@ We support clients across diverse industries including Insurance, Banking & Fina
             if req_text:
                 req_para.add_run(_capitalize_sentence(req_text))
             
-            resp_heading = doc.add_heading("Response", 3)
+            _add_heading_with_break_control(doc, "Response", 3)
             _parse_markdown_to_docx(doc, resp_data.get('response', ''))
             
             if resp_data.get('quality'):
