@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react'
 import { usePipeline } from '../context/PipelineContext'
-import { runPreprocess, runRequirements, buildQuery, generateResponse, createChatSession, updateRequirements, getSession } from '../services/api'
+import { runPreprocess, runRequirements, buildQuery, generateResponse, createChatSession, updateRequirements, getSession, saveDocx } from '../services/api'
 import StatusPill from './StatusPill'
 import OutputDisplay from './OutputDisplay'
 import Button from './Button'
 import ChatInterface from './ChatInterface'
 import PreviewBox from './PreviewBox'
+import DocumentViewer from './DocumentViewer'
 import { formatPreprocessOutput, formatRequirementsOutput } from '../utils/formatters'
 import './AgentPanel.css'
 
@@ -367,6 +368,10 @@ export default function AgentPanel({ agentId }) {
         const sizeKB = (response.blob.size / 1024).toFixed(1)
         setSummary(`PDF generated successfully (${sizeKB} KB)`)
         updatePipelineData('response', { type: 'pdf', size: response.blob.size })
+      } else if (response.type === 'docx') {
+        // Store DOCX blob for viewing
+        updatePipelineData('response', { type: 'docx', blob: response.blob })
+        setSummary('DOCX generated successfully. Review and edit the document, then save to output folder.')
       } else {
         updatePipelineData('response', response)
         setSummary('Response generated successfully')
@@ -386,6 +391,19 @@ export default function AgentPanel({ agentId }) {
       }
       generatingRef.current = false
       setIsGeneratingDocx(false)
+    }
+  }
+
+  // Handle saving DOCX (supports both original blob and edited HTML)
+  const handleSaveDocx = async (docxBase64, htmlContent) => {
+    try {
+      const result = await saveDocx(docxBase64, htmlContent)
+      setSummary(`Document saved successfully to: ${result.path}`)
+      alert(`Document saved successfully to:\n${result.path}`)
+    } catch (err) {
+      console.error('Failed to save DOCX:', err)
+      setSummary(`Failed to save document: ${err.message}`)
+      alert(`Failed to save document: ${err.message}`)
     }
   }
 
@@ -427,6 +445,10 @@ export default function AgentPanel({ agentId }) {
           if (pipelineData.response.type === 'pdf') {
             const sizeKB = (pipelineData.response.size / 1024).toFixed(1)
             return `PDF generated successfully (${sizeKB} KB). Check your downloads.`
+          }
+          // For DOCX, we'll show the DocumentViewer instead
+          if (pipelineData.response.type === 'docx') {
+            return null // DocumentViewer will be shown instead
           }
           // Fallback to any response text we have
           if (pipelineData.response.response_text) {
@@ -675,6 +697,11 @@ export default function AgentPanel({ agentId }) {
             </Button>
           </div>
         </div>
+      ) : agentId === 'response' && pipelineData.response?.type === 'docx' ? (
+        <DocumentViewer 
+          docxBlob={pipelineData.response.blob}
+          onSave={handleSaveDocx}
+        />
       ) : (
         <OutputDisplay content={content} />
       )}

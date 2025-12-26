@@ -762,30 +762,25 @@ async def _generate_structured_response(
         
         rfp_title = _extract_title_from_key_requirements(extraction_result.key_requirements_summary)
         
-        project_root = Path(__file__).parent.parent
-        output_dir = project_root / "output" / "docx"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        
-        timestamp = int(time.time())
-        docx_filename = f"rfp_response_structured_{extraction_result.language}_{timestamp}.docx"
-        docx_path = output_dir / docx_filename
-        
+        #generate DOCX in memory without saving to disk
         docx_bytes = generate_rfp_docx(
             individual_responses=individual_responses,
             requirements_result=requirements_result,
             extraction_result=extraction_result,
             rfp_title=rfp_title,
-            output_path=docx_path,
+            output_path=None,
         )
         
-        docx_bytes = docx_path.read_bytes()
-        logger.info("DOCX generated successfully: %d bytes", len(docx_bytes))
+        logger.info("DOCX generated successfully: %d bytes (in memory, not saved)", len(docx_bytes))
+        
+        timestamp = int(time.time())
+        docx_filename = f"rfp_response_structured_{extraction_result.language}_{timestamp}.docx"
         
         return Response(
             content=docx_bytes,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
-                "Content-Disposition": f'attachment; filename="{docx_filename}"',
+                "Content-Disposition": f'inline; filename="{docx_filename}"',
                 "Content-Length": str(len(docx_bytes)),
             }
         )
@@ -812,44 +807,30 @@ def _generate_docx_response(
     logger.info("Generating DOCX with %d individual responses", len(individual_responses))
     docx_start_time = time.time()
     
-    project_root = Path(__file__).parent.parent
-    output_dir = project_root / "output" / "docx"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("DOCX output directory: %s (absolute: %s)", output_dir, output_dir.absolute())
-    
-    timestamp = int(time.time())
-    docx_filename = f"rfp_response_{extraction_result.language}_{timestamp}.docx"
-    docx_path = output_dir / docx_filename
-    logger.info("DOCX will be saved to: %s", docx_path.absolute())
-    
-    generate_rfp_docx(
+    #generate DOCX in memory without saving to disk
+    docx_bytes = generate_rfp_docx(
         individual_responses=individual_responses,
         requirements_result=requirements_result,
         extraction_result=extraction_result,
         rfp_title=rfp_title,
-        output_path=docx_path,
+        output_path=None,
     )
-    
-    docx_bytes = docx_path.read_bytes()
     
     docx_elapsed = time.time() - docx_start_time
-    docx_absolute_path = docx_path.absolute()
+    timestamp = int(time.time())
+    docx_filename = f"rfp_response_{extraction_result.language}_{timestamp}.docx"
+    
     logger.info(
-        "DOCX generation completed successfully: %d bytes in %.2f seconds, saved to %s",
+        "DOCX generation completed successfully: %d bytes in %.2f seconds (in memory, not saved)",
         len(docx_bytes),
         docx_elapsed,
-        docx_absolute_path,
     )
-    
-    if not docx_path.exists():
-        logger.error("DOCX file was not found after generation at: %s", docx_absolute_path)
-        raise FileNotFoundError(f"DOCX was not saved to {docx_absolute_path}")
     
     return Response(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={
-            "Content-Disposition": f'attachment; filename="{docx_filename}"',
+            "Content-Disposition": f'inline; filename="{docx_filename}"',
             "Content-Length": str(len(docx_bytes)),
         }
     )
@@ -1112,44 +1093,30 @@ async def _generate_per_requirement_response(
             logger.info("Generating DOCX with %d individual responses", len(individual_responses))
             docx_start_time = time.time()
             
-            project_root = Path(__file__).parent.parent
-            output_dir = project_root / "output" / "docx"
-            output_dir.mkdir(parents=True, exist_ok=True)
-            logger.info("DOCX output directory: %s (absolute: %s)", output_dir, output_dir.absolute())
-            
-            timestamp = int(time.time())
-            docx_filename = f"rfp_response_{extraction_result.language}_{timestamp}.docx"
-            docx_path = output_dir / docx_filename
-            logger.info("DOCX will be saved to: %s", docx_path.absolute())
-            
+            #generate DOCX in memory without saving to disk
             docx_bytes = generate_rfp_docx(
                 individual_responses=individual_responses,
                 requirements_result=requirements_result,
                 extraction_result=extraction_result,
                 rfp_title=rfp_title,
-                output_path=docx_path,
+                output_path=None,
             )
-            
-            docx_bytes = docx_path.read_bytes()
             
             docx_elapsed = time.time() - docx_start_time
-            docx_absolute_path = docx_path.absolute()
+            timestamp = int(time.time())
+            docx_filename = f"rfp_response_{extraction_result.language}_{timestamp}.docx"
+            
             logger.info(
-                "DOCX generation completed successfully: %d bytes in %.2f seconds, saved to %s",
+                "DOCX generation completed successfully: %d bytes in %.2f seconds (in memory, not saved)",
                 len(docx_bytes),
                 docx_elapsed,
-                docx_absolute_path,
             )
-            
-            if not docx_path.exists():
-                logger.error("DOCX file was not found after generation at: %s", docx_absolute_path)
-                raise FileNotFoundError(f"DOCX was not saved to {docx_absolute_path}")
             
             return Response(
                 content=docx_bytes,
                 media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 headers={
-                    "Content-Disposition": f'attachment; filename="{docx_filename}"',
+                    "Content-Disposition": f'inline; filename="{docx_filename}"',
                     "Content-Length": str(len(docx_bytes)),
                 }
             )
@@ -1998,6 +1965,172 @@ async def generate_pdf_from_preview_endpoint(req: GeneratePDFFromPreviewRequest)
                 "X-PDF-Path": str(pdf_path.absolute()),
             }
         )
+
+
+#function to convert HTML content to DOCX using python-docx
+def _html_to_docx(html_content: str) -> bytes:
+    try:
+        from bs4 import BeautifulSoup
+    except ImportError:
+        raise ImportError("beautifulsoup4 is not installed. Install it with: pip install beautifulsoup4")
+    
+    try:
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from io import BytesIO
+    except ImportError:
+        raise ImportError("python-docx is not installed. Install it with: pip install python-docx")
+    
+    doc = Document()
+    
+    normal = doc.styles["Normal"]
+    normal.font.name = "Calibri"
+    normal.font.size = Pt(11)
+    
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    for element in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'table', 'img', 'br', 'div']):
+        if element.name == 'p':
+            para = doc.add_paragraph()
+            _add_text_to_paragraph(para, element)
+        elif element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+            level = int(element.name[1])
+            heading = doc.add_heading(level=min(level, 9))
+            _add_text_to_paragraph(heading, element)
+        elif element.name == 'ul' or element.name == 'ol':
+            for li in element.find_all('li', recursive=False):
+                para = doc.add_paragraph(style='List Bullet' if element.name == 'ul' else 'List Number')
+                _add_text_to_paragraph(para, li)
+        elif element.name == 'table':
+            _add_table_to_doc(doc, element)
+        elif element.name == 'img':
+            src = element.get('src', '')
+            if src.startswith('data:image'):
+                try:
+                    import base64
+                    header, encoded = src.split(',', 1)
+                    img_data = base64.b64decode(encoded)
+                    from io import BytesIO
+                    doc.add_picture(BytesIO(img_data))
+                except Exception as e:
+                    logger.warning(f"Failed to add image: {e}")
+        elif element.name == 'br':
+            doc.add_paragraph()
+        elif element.name == 'div' and element.get_text(strip=True):
+            para = doc.add_paragraph()
+            _add_text_to_paragraph(para, element)
+    
+    if len(doc.paragraphs) == 0:
+        text_content = soup.get_text()
+        for line in text_content.split('\n'):
+            if line.strip():
+                doc.add_paragraph(line.strip())
+    
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+#function to add text content to a paragraph, handling formatting
+def _add_text_to_paragraph(para, element):
+    from bs4 import NavigableString
+    
+    for content in element.contents:
+        if isinstance(content, NavigableString):
+            text = str(content).strip()
+            if text:
+                para.add_run(text)
+        elif hasattr(content, 'name'):
+            if content.name == 'strong' or content.name == 'b':
+                run = para.add_run(content.get_text())
+                run.bold = True
+            elif content.name == 'em' or content.name == 'i':
+                run = para.add_run(content.get_text())
+                run.italic = True
+            elif content.name == 'u':
+                run = para.add_run(content.get_text())
+                run.underline = True
+            else:
+                para.add_run(content.get_text())
+
+
+#function to add a table from HTML to DOCX
+def _add_table_to_doc(doc, table_element):
+    rows = table_element.find_all('tr')
+    if not rows:
+        return
+    
+    max_cols = max(len(row.find_all(['td', 'th'])) for row in rows)
+    if max_cols == 0:
+        return
+    
+    table = doc.add_table(rows=len(rows), cols=max_cols)
+    
+    for row_idx, row in enumerate(rows):
+        cells = row.find_all(['td', 'th'])
+        for col_idx, cell in enumerate(cells[:max_cols]):
+            table.rows[row_idx].cells[col_idx].text = cell.get_text(strip=True)
+            # Style header cells
+            if cell.name == 'th':
+                for para in table.rows[row_idx].cells[col_idx].paragraphs:
+                    for run in para.runs:
+                        run.bold = True
+
+
+class SaveDocxRequest(BaseModel):
+    docx_bytes: Optional[str] = None
+    html_content: Optional[str] = None
+    filename: Optional[str] = None
+
+@app.post("/save-docx")
+#function to save a DOCX file to the output folder (from blob or HTML)
+async def save_docx_endpoint(req: SaveDocxRequest) -> Dict[str, Any]:
+    import base64
+    
+    try:
+
+        if req.html_content:
+            logger.info("Converting HTML content to DOCX...")
+            docx_bytes = _html_to_docx(req.html_content)
+            logger.info("HTML converted to DOCX: %d bytes", len(docx_bytes))
+        elif req.docx_bytes:
+            docx_bytes = base64.b64decode(req.docx_bytes)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'docx_bytes' or 'html_content' must be provided",
+            )
+        
+        project_root = Path(__file__).parent.parent
+        output_dir = project_root / "output" / "docx"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        if not req.filename:
+            timestamp = int(time.time())
+            req.filename = f"rfp_response_en_{timestamp}.docx"
+        
+        if not req.filename.endswith('.docx'):
+            req.filename += '.docx'
+        
+        output_path = output_dir / req.filename
+        
+        output_path.write_bytes(docx_bytes)
+        
+        logger.info("DOCX saved successfully: %d bytes to %s", len(docx_bytes), output_path.absolute())
+        
+        return {
+            "status": "ok",
+            "filename": req.filename,
+            "path": str(output_path.absolute()),
+            "size": len(docx_bytes),
+        }
+    except Exception as exc:
+        logger.exception("Failed to save DOCX: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to save DOCX: {str(exc)}",
+        ) from exc
 
 
 @app.get("/health")

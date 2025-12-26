@@ -341,6 +341,33 @@ export async function enrichBuildQuery(buildQuery, sessionId = null) {
   return await response.json();
 }
 
+export async function saveDocx(docxBase64 = null, htmlContent = null, filename = null) {
+  const body = { filename };
+  
+  if (htmlContent) {
+    body.html_content = htmlContent;
+  } else if (docxBase64) {
+    body.docx_bytes = docxBase64;
+  } else {
+    throw new Error("Either docxBase64 or htmlContent must be provided");
+  }
+
+  const response = await fetch(`${API_BASE}/save-docx`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Save DOCX error ${response.status}: ${text.slice(0, 200)}`);
+  }
+
+  return await response.json();
+}
+
 // =============================================================================
 // ITERATIVE QUESTION FLOW
 // =============================================================================
