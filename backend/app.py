@@ -709,6 +709,12 @@ def _process_single_requirement(
     )
     build_query_obj.confirmed = True
     
+    if requirements_result.structure_detection:
+        build_query_obj.extraction_data["structure_detection"] = {
+            "has_explicit_structure": requirements_result.structure_detection.has_explicit_structure,
+            "structure_type": requirements_result.structure_detection.structure_type,
+        }
+    
     try:
         result = run_response_agent(
             build_query=build_query_obj,

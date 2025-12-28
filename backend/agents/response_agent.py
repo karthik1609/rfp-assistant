@@ -105,6 +105,46 @@ def run_response_agent(
 
     req_summary = build_query.solution_requirements_summary
     struct_summary = build_query.response_structure_requirements_summary
+    
+    structure_detection = build_query.extraction_data.get("structure_detection")
+    if structure_detection:
+        is_implicit_structure = not structure_detection.get("has_explicit_structure", False)
+        logger.info(
+            "Using structure detection from extraction_data: has_explicit_structure=%s, type=%s",
+            structure_detection.get("has_explicit_structure"),
+            structure_detection.get("structure_type"),
+        )
+    else:
+        struct_lower = (struct_summary or "").lower()
+        explicit_keywords = [
+            "executive summary", "technical approach", "implementation plan", 
+            "project plan", "methodology", "solution overview", "company overview",
+            "chapter", "part", "appendix"
+        ]
+        has_explicit_sections = any(keyword in struct_lower for keyword in explicit_keywords)
+        
+        is_implicit_structure = (
+            not struct_summary or 
+            struct_summary == "No response structure requirements found." or
+            not has_explicit_sections
+        )
+        logger.info(
+            "Detected structure from struct_summary: is_implicit=%s, has_explicit_sections=%s, summary_length=%d",
+            is_implicit_structure,
+            has_explicit_sections,
+            len(struct_summary or ""),
+        )
+    
+    if is_implicit_structure:
+        target_chars_min = 200
+        target_chars_max = 500
+        target_words = "3-5 sentences"
+        max_response_length = 500
+    else:
+        target_chars_min = 5000
+        target_chars_max = 10000
+        target_words = "800-1500"
+        max_response_length = 10000
 
     retrieved_memories: List[Dict[str, Any]] = []
     retrieved_edit_memories: List[Dict[str, Any]] = []
@@ -245,25 +285,44 @@ def run_response_agent(
             "",
         ])
     
-    user_prompt_parts.extend([
-        "TASK: Write a comprehensive, detailed response to the requirement above.",
-        "",
-        "YOUR RESPONSE SHOULD:",
-        "1. Show understanding: Briefly acknowledge what the requirement asks for",
-        "2. Comprehensive answer: Provide a detailed, thorough response addressing ALL aspects of the requirement",
-        "3. Use Q&A information FULLY: If Q&A context is provided above, use the COMPLETE, FULL answers - do not summarize them. If the user provided detailed project information, include those full details. If they provided a list of certifications, include the full list. Match the depth of detail provided in the Q&A.",
-        "4. Be specific: Include concrete details, metrics, capabilities, and examples",
-        "5. Be relevant: Use fusionAIx capabilities, case studies, or accelerators where applicable",
-        "6. Be detailed: Write 800-1500 words (5000-10000 characters) - match the depth of the questions asked",
-        "",
-        "DO NOT INCLUDE:",
-        "- Executive summaries",
-        "- Solution overviews",
-        "- Generic introductions or conclusions",
-        "- Unnecessary section headers - just answer the requirement directly",
-        "",
-        "Write your comprehensive response now (detailed, 5000-10000 characters):",
-    ])
+    if is_implicit_structure:
+        user_prompt_parts.extend([
+            "TASK: Write a brief, direct response to the requirement above (approximately 5 sentences).",
+            "",
+            "YOUR RESPONSE SHOULD:",
+            "1. Directly answer the requirement - be specific and concrete",
+            "2. Use Q&A information if provided - include relevant details but keep it concise",
+            "3. Reference fusionAIx capabilities where relevant - one brief example is sufficient",
+            f"4. Be brief: Write approximately {target_words} ({target_chars_min}-{target_chars_max} characters total)",
+            "",
+            "DO NOT INCLUDE:",
+            "- Long explanations or elaborations",
+            "- Multiple examples or case studies",
+            "- Section headers or formatting",
+            "- Unnecessary background information",
+            "",
+            f"Write your brief response now ({target_chars_min}-{target_chars_max} characters, ~5 sentences):",
+        ])
+    else:
+        user_prompt_parts.extend([
+            "TASK: Write a comprehensive, detailed response to the requirement above.",
+            "",
+            "YOUR RESPONSE SHOULD:",
+            "1. Show understanding: Briefly acknowledge what the requirement asks for",
+            "2. Comprehensive answer: Provide a detailed, thorough response addressing ALL aspects of the requirement",
+            "3. Use Q&A information FULLY: If Q&A context is provided above, use the COMPLETE, FULL answers - do not summarize them. If the user provided detailed project information, include those full details. If they provided a list of certifications, include the full list. Match the depth of detail provided in the Q&A.",
+            "4. Be specific: Include concrete details, metrics, capabilities, and examples",
+            "5. Be relevant: Use fusionAIx capabilities, case studies, or accelerators where applicable",
+            "6. Be detailed: Write 800-1500 words (5000-10000 characters) - match the depth of the questions asked",
+            "",
+            "DO NOT INCLUDE:",
+            "- Executive summaries",
+            "- Solution overviews",
+            "- Generic introductions or conclusions",
+            "- Unnecessary section headers - just answer the requirement directly",
+            "",
+            "Write your comprehensive response now (detailed, 5000-10000 characters):",
+        ])
 
     user_prompt = "\n".join(user_prompt_parts)
     
@@ -279,10 +338,17 @@ def run_response_agent(
 
     if max_tokens is None:
         estimated_input_tokens = total_input_tokens
-        max_tokens = min(2500, 32769 - estimated_input_tokens - 1000)
+        if is_implicit_structure:
+            max_tokens = min(200, 32769 - estimated_input_tokens - 1000)  # ~500 chars for 5 sentences
+        else:
+            max_tokens = min(2500, 32769 - estimated_input_tokens - 1000)  # ~10000 chars
         logger.info(
-            "Response max_tokens set to %d (target: ~5000-10000 characters, ~800-1500 words)",
+            "Response max_tokens set to %d (target: ~%d-%d characters, ~%s, structure=%s)",
             max_tokens,
+            target_chars_min,
+            target_chars_max,
+            target_words,
+            "implicit" if is_implicit_structure else "explicit",
         )
 
     logger.info(
@@ -302,26 +368,26 @@ def run_response_agent(
         max_tokens=max_tokens,
     )
     
-    MAX_RESPONSE_LENGTH = 10000
-    if len(response_text) > MAX_RESPONSE_LENGTH:
+    if len(response_text) > max_response_length:
         logger.warning(
             "Response too long (%d chars), truncating to %d chars",
             len(response_text),
-            MAX_RESPONSE_LENGTH,
+            max_response_length,
         )
-        truncated = response_text[:MAX_RESPONSE_LENGTH]
+        truncated = response_text[:max_response_length]
         last_period = truncated.rfind('.')
         last_newline = truncated.rfind('\n')
         cut_point = max(last_period, last_newline)
-        if cut_point > MAX_RESPONSE_LENGTH * 0.8:
+        if cut_point > max_response_length * 0.8:
             response_text = truncated[:cut_point + 1] + "\n\n[Response truncated for length]"
         else:
             response_text = truncated + "\n\n[Response truncated for length]"
 
     logger.info(
-        "Response agent: finished (response_length=%d, max_allowed=%d)",
+        "Response agent: finished (response_length=%d, max_allowed=%d, structure=%s)",
         len(response_text),
-        MAX_RESPONSE_LENGTH,
+        max_response_length,
+        "implicit" if is_implicit_structure else "explicit",
     )
 
     return ResponseResult(

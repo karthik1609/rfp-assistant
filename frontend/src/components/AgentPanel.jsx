@@ -591,23 +591,6 @@ export default function AgentPanel({ agentId }) {
 
   return (
     <div className="agent-panel">
-      {config.description && (
-        <div className="agent-summary">
-          <strong>Description:</strong> {config.description}
-        </div>
-      )}
-      
-      {config.showStatus && (
-        <div className="agent-summary">
-          <strong>Status:</strong> {status === 'processing' ? 'Processing...' : status === 'complete' ? 'Complete' : status === 'error' ? 'Error' : 'Waiting...'}
-          {summaryText && <><br /><strong>Summary:</strong> {summaryText}</>}
-        </div>
-      )}
-      
-      {config.badge && (
-          <div className="badge">{config.badge}</div>
-      )}
-     
       {/* OCR editable view */}
       {agentId === 'ocr' && pipelineData.ocr ? (
         <div className="editable-section">

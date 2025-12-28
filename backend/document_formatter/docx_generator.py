@@ -1016,9 +1016,21 @@ def generate_rfp_docx(
     else:
         for idx, resp_data in enumerate(individual_responses, 1):
             req_id = resp_data.get('requirement_id', 'N/A')
+            req_text = resp_data.get('requirement_text', '')
+            if req_text:
+                first_sentence = req_text.split('.')[0].strip()
+                if len(first_sentence) > 60:
+                    first_sentence = first_sentence[:60].rsplit(' ', 1)[0] + '...'
+                elif len(first_sentence) < 10:
+                    first_sentence = req_text[:60].strip()
+                    if len(req_text) > 60:
+                        first_sentence = first_sentence.rsplit(' ', 1)[0] + '...'
+                title = first_sentence if first_sentence else req_id
+            else:
+                title = req_id
             toc_entries.append({
-                'text': f"Requirement {idx}: {req_id}",
-                'level': 2,
+                'text': f"{idx}. {title}",
+                'level': 1,
             })
     
     doc = Document()
