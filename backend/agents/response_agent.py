@@ -369,22 +369,14 @@ def run_response_agent(
     )
     
     if len(response_text) > max_response_length:
-        logger.warning(
-            "Response too long (%d chars), truncating to %d chars",
+        logger.info(
+            "Response length (%d chars) exceeds target (%d chars), but keeping full response",
             len(response_text),
             max_response_length,
         )
-        truncated = response_text[:max_response_length]
-        last_period = truncated.rfind('.')
-        last_newline = truncated.rfind('\n')
-        cut_point = max(last_period, last_newline)
-        if cut_point > max_response_length * 0.8:
-            response_text = truncated[:cut_point + 1] + "\n\n[Response truncated for length]"
-        else:
-            response_text = truncated + "\n\n[Response truncated for length]"
 
     logger.info(
-        "Response agent: finished (response_length=%d, max_allowed=%d, structure=%s)",
+        "Response agent: finished (response_length=%d, target_length=%d, structure=%s)",
         len(response_text),
         max_response_length,
         "implicit" if is_implicit_structure else "explicit",

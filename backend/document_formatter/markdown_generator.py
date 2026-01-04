@@ -32,15 +32,21 @@ def generate_rfp_markdown(
     lines.append("---")
     lines.append("")
     
-    lines.append("## Table of Contents")
-    lines.append("")
-    for idx, resp in enumerate(individual_responses, 1):
-        req_id = resp.get('requirement_id', f'Requirement {idx}')
-        key_phrase = resp.get('key_phrase', '')[:60]
-        lines.append(f"{idx}. [{req_id}: {key_phrase}...](#requirement-{idx})")
-    lines.append("")
-    lines.append("---")
-    lines.append("")
+    is_implicit_structure = (
+        requirements_result.structure_detection and 
+        not requirements_result.structure_detection.has_explicit_structure
+    )
+    
+    if not is_implicit_structure:
+        lines.append("## Table of Contents")
+        lines.append("")
+        for idx, resp in enumerate(individual_responses, 1):
+            req_id = resp.get('requirement_id', f'Requirement {idx}')
+            key_phrase = resp.get('key_phrase', '')[:60]
+            lines.append(f"{idx}. [{req_id}: {key_phrase}...](#requirement-{idx})")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
     
     lines.append("## Company Overview")
     lines.append("")
@@ -61,23 +67,29 @@ def generate_rfp_markdown(
     lines.append("---")
     lines.append("")
     
-    lines.append("## Solution Requirement Responses")
-    lines.append("")
+    if not is_implicit_structure:
+        lines.append("## Solution Requirement Responses")
+        lines.append("")
     
     for idx, resp_data in enumerate(individual_responses, 1):
-        req_id = resp_data.get('requirement_id', f'Requirement {idx}')
-        lines.append(f"### Requirement {idx}: {req_id}")
-        lines.append("")
+        if not is_implicit_structure:
+            req_id = resp_data.get('requirement_id', f'Requirement {idx}')
+            lines.append(f"### Requirement {idx}: {req_id}")
+            lines.append("")
+        
         lines.append(f"**Requirement:** {resp_data.get('requirement_text', '')}")
         lines.append("")
-        lines.append("**Response:**")
-        lines.append("")
+        
+        if not is_implicit_structure:
+            lines.append("**Response:**")
+            lines.append("")
+        
         response_text = resp_data.get('response', '')
         for line in response_text.split('\n'):
             lines.append(line)
         lines.append("")
         
-        if resp_data.get('quality'):
+        if not is_implicit_structure and resp_data.get('quality'):
             quality = resp_data['quality']
             lines.append("**Quality Assessment:**")
             lines.append(f"- Score: {quality.get('score', 0):.0f}/100")
@@ -89,8 +101,9 @@ def generate_rfp_markdown(
                     lines.append(f"  - {issue}")
             lines.append("")
         
-        lines.append("---")
-        lines.append("")
+        if not is_implicit_structure:
+            lines.append("---")
+            lines.append("")
     
     markdown_content = "\n".join(lines)
     markdown_bytes = markdown_content.encode('utf-8')

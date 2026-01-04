@@ -1120,24 +1120,50 @@ We support clients across diverse industries including Insurance, Banking & Fina
     
     is_structured = len(individual_responses) == 1 and individual_responses[0].get('requirement_id') == 'STRUCTURED'
     
+    is_implicit_structure = (
+        requirements_result.structure_detection and 
+        not requirements_result.structure_detection.has_explicit_structure
+    )
+    
     if is_structured:
         response_text = individual_responses[0].get('response', '')
         _parse_markdown_to_docx(doc, response_text)
     else:
-        _add_heading_with_break_control(doc, "Solution Requirement Responses", 1)
+        if not is_implicit_structure:
+            _add_heading_with_break_control(doc, "Solution Requirement Responses", 1)
         for idx, resp_data in enumerate(individual_responses, 1):
-            _add_heading_with_break_control(doc, f"Requirement {idx}: {resp_data.get('requirement_id', 'N/A')}", 2)
+            if not is_implicit_structure:
+                _add_heading_with_break_control(doc, f"Requirement {idx}: {resp_data.get('requirement_id', 'N/A')}", 2)
             
-            req_para = doc.add_paragraph()
-            req_para.add_run("Requirement: ").bold = True
-            req_text = resp_data.get('requirement_text', '')
-            if req_text:
-                req_para.add_run(_capitalize_sentence(req_text))
+            if is_implicit_structure:
+                doc.add_paragraph()
+                req_text = resp_data.get('requirement_text', '')
+                if req_text:
+                    req_heading_text = f"Requirement {idx}: {_capitalize_sentence(req_text)}"
+                    if len(req_heading_text) > 200:
+                        req_heading_text = req_heading_text[:197] + "..."
+                    _add_heading_with_break_control(doc, req_heading_text, 3)
+                else:
+                    _add_heading_with_break_control(doc, f"Requirement {idx}: {resp_data.get('requirement_id', 'N/A')}", 3)
+                
+                doc.add_paragraph()
+                response_label_para = doc.add_paragraph()
+                response_label_run = response_label_para.add_run("Response:")
+                response_label_run.bold = True
+                response_label_run.font.size = Pt(11)
+                response_label_para.paragraph_format.space_after = Pt(6)
+            else:
+                req_para = doc.add_paragraph()
+                req_para.add_run("Requirement: ").bold = True
+                req_text = resp_data.get('requirement_text', '')
+                if req_text:
+                    req_para.add_run(_capitalize_sentence(req_text))
+                
+                _add_heading_with_break_control(doc, "Response", 3)
             
-            _add_heading_with_break_control(doc, "Response", 3)
             _parse_markdown_to_docx(doc, resp_data.get('response', ''))
             
-            if resp_data.get('quality'):
+            if not is_implicit_structure and resp_data.get('quality'):
                 quality = resp_data['quality']
                 quality_para = doc.add_paragraph()
                 quality_para.add_run(f"Quality Score: {quality.get('score', 0):.0f}/100 | ").bold = True
@@ -1145,6 +1171,8 @@ We support clients across diverse industries including Insurance, Banking & Fina
                 quality_para.add_run(f"Relevance: {quality.get('relevance', 'unknown')}")
             
             doc.add_paragraph()
+            if is_implicit_structure:
+                doc.add_paragraph()
     
     if output_path:
         output_path = Path(output_path)
