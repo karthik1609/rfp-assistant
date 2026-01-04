@@ -786,6 +786,11 @@ export default function AgentPanel({ agentId }) {
                 >
                   {editable.buildQuery ? 'Close editor' : 'Edit build query'}
                 </Button>
+                {config.showGenerate && confirmations.buildQueryConfirmed && allQuestionsAnswered && (
+                  <Button onClick={handleGenerateResponse} disabled={status === 'processing' || isGeneratingDocx || statuses.response === 'processing'}>
+                    {isGeneratingDocx || statuses.response === 'processing' ? 'Generating...' : 'Generate DOCX'}
+                  </Button>
+                )}
               </div>
               {!allQuestionsAnswered && chatSessionId && (
                 <div style={{ padding: '0.75rem', background: 'rgba(37, 99, 235, 0.1)', border: '1px solid rgba(37, 99, 235, 0.3)', borderRadius: '0.5rem', color: '#60a5fa', fontSize: '0.875rem' }}>
@@ -795,14 +800,6 @@ export default function AgentPanel({ agentId }) {
             </div>
           )}
         </>
-      )}
-      
-      {config.showGenerate && agentId === 'build-query' && confirmations.buildQueryConfirmed && questionsGenerated && allQuestionsAnswered && (
-        <div className="accept-row" style={{ marginTop: '0.5rem' }}>
-          <Button onClick={handleGenerateResponse} disabled={status === 'processing' || isGeneratingDocx || statuses.response === 'processing'}>
-            {isGeneratingDocx || statuses.response === 'processing' ? 'Generating...' : 'Generate DOCX'}
-          </Button>
-        </div>
       )}
       
       {/* Chat is now in fixed sidebar - removed from here */}
