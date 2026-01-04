@@ -495,7 +495,7 @@ def _parse_markdown_to_docx(doc, text: str):
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
-        mermaid_start_pattern = re.compile(r'^(?:flowchart|graph|sequenceDiagram|classDiagram|gantt|stateDiagram|pie|erDiagram)\b', re.IGNORECASE)
+        mermaid_start_pattern = re.compile(r'^(?:flowchart|graph|sequenceDiagram|classDiagram|gantt|stateDiagram(?:-v2)?|pie|erDiagram)\b', re.IGNORECASE)
         if mermaid_start_pattern.match(stripped):
             if diagram_count >= 1:
                 logger.info('Skipping additional mermaid diagram (only 1 diagram per document allowed)')

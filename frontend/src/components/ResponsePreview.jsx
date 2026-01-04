@@ -189,7 +189,7 @@ function splitResponseWithMermaid(text) {
   }
 
   if (spans.length === 0) {
-    const standaloneRe = /(^|\n)\s*((?:flowchart|graph|sequenceDiagram|gantt|classDiagram|stateDiagram|pie)[\s\S]*?)(?:\nCaption:\s*(.*?))?(?=\n\n|$)/im
+    const standaloneRe = /(^|\n)\s*((?:flowchart|graph|sequenceDiagram|gantt|classDiagram|stateDiagram(?:-v2)?|pie|erDiagram)[\s\S]*?)(?:\nCaption:\s*(.*?))?(?=\n\n|$)/im
     let remaining = text
     let baseOffset = 0
     while (true) {

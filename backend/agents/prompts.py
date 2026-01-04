@@ -54,30 +54,61 @@ RESPONSE_SYSTEM_PROMPT += """
 
 DIAGRAM GUIDELINES:
 - If a diagram would clearly improve clarity or conciseness, include exactly ONE Mermaid diagram in the response.
+- **IMPORTANT: Vary diagram types based on content - do NOT default to flowcharts for everything.**
 - Choose the appropriate diagram type based on the content:
-  * **flowchart** or **graph**: Process flows, workflows, decision trees, system architecture, component relationships
-  * **sequenceDiagram**: Interactions between systems/components over time, API calls, message flows
-  * **gantt**: Project timelines, implementation schedules, milestones, phases
-  * **classDiagram**: System architecture, object relationships, data models, class structures
-  * **stateDiagram**: State machines, workflow states, status transitions
-  * **pie**: Data distributions, resource allocation, percentage breakdowns
+  * **sequenceDiagram**: Use for interactions between systems/components over time, API calls, message flows, request/response patterns, authentication flows, data synchronization. PREFERRED for showing temporal interactions.
+  * **classDiagram**: Use for system architecture showing relationships, object-oriented designs, data models, entity relationships, component hierarchies. PREFERRED for showing structural relationships.
+  * **stateDiagram**: Use for state machines, workflow states, status transitions, process states, lifecycle management. PREFERRED for showing state changes.
+  * **gantt**: Use for project timelines, implementation schedules, milestones, phases, delivery schedules. PREFERRED for time-based planning.
+  * **pie**: Use for data distributions, resource allocation, percentage breakdowns, statistical representations. PREFERRED for quantitative visualizations.
+  * **flowchart** or **graph**: Use ONLY for process flows, workflows, decision trees, or when no other diagram type fits. AVOID using flowcharts for system architecture - prefer sequenceDiagram or classDiagram instead.
 - The diagram must be provided as a fenced code block with the language `mermaid`, e.g.:
 ````mermaid
-flowchart TD
-  A[Start] --> B{Decision}
-  B -->|Yes| C[Action 1]
-  B -->|No| D[Action 2]
+sequenceDiagram
+  participant User
+  participant Frontend
+  participant API
+  participant Database
+  User->>Frontend: Submit Request
+  Frontend->>API: API Call
+  API->>Database: Query Data
+  Database-->>API: Results
+  API-->>Frontend: JSON Response
+  Frontend-->>User: Display Results
 ````
 or
 ````mermaid
-sequenceDiagram
-  participant Client
-  participant API
-  participant Database
-  Client->>API: Request
-  API->>Database: Query
-  Database-->>API: Results
-  API-->>Client: Response
+classDiagram
+  class UserInterface {
+    +render()
+    +handleInput()
+  }
+  class ProcessOrchestration {
+    +coordinate()
+    +manageWorkflow()
+  }
+  class CaseManagement {
+    +createCase()
+    +updateCase()
+  }
+  class BusinessRules {
+    +evaluateRules()
+    +applyLogic()
+  }
+  UserInterface --> ProcessOrchestration
+  ProcessOrchestration --> CaseManagement
+  ProcessOrchestration --> BusinessRules
+````
+or
+````mermaid
+stateDiagram-v2
+  [*] --> Draft
+  Draft --> Review
+  Review --> Approved
+  Review --> Rejected
+  Rejected --> Draft
+  Approved --> Published
+  Published --> [*]
 ````
 or
 ````mermaid
@@ -88,6 +119,14 @@ gantt
   section Phase 2
   Development: 2024-02-01, 60d
   Testing: 2024-04-01, 30d
+````
+or
+````mermaid
+pie title Resource Allocation
+  "Development" : 40
+  "Testing" : 25
+  "Documentation" : 15
+  "Project Management" : 20
 ````
 - Place the diagram after the textual answer and include one short caption line immediately after the fenced block (plain text, one sentence). Example:
 Caption: High-level request flow from client to database.
@@ -115,30 +154,61 @@ STRUCTURED_RESPONSE_SYSTEM_PROMPT += """
 
 DIAGRAM GUIDELINES:
 - If a diagram would clearly improve clarity for a section, you may include exactly ONE Mermaid diagram in the overall generated document.
+- **IMPORTANT: Vary diagram types based on content - do NOT default to flowcharts for everything.**
 - Choose the appropriate diagram type based on the content:
-  * **flowchart** or **graph**: Process flows, workflows, decision trees, system architecture, component relationships
-  * **sequenceDiagram**: Interactions between systems/components over time, API calls, message flows
-  * **gantt**: Project timelines, implementation schedules, milestones, phases
-  * **classDiagram**: System architecture, object relationships, data models, class structures
-  * **stateDiagram**: State machines, workflow states, status transitions
-  * **pie**: Data distributions, resource allocation, percentage breakdowns
+  * **sequenceDiagram**: Use for interactions between systems/components over time, API calls, message flows, request/response patterns, authentication flows, data synchronization. PREFERRED for showing temporal interactions.
+  * **classDiagram**: Use for system architecture showing relationships, object-oriented designs, data models, entity relationships, component hierarchies. PREFERRED for showing structural relationships.
+  * **stateDiagram**: Use for state machines, workflow states, status transitions, process states, lifecycle management. PREFERRED for showing state changes.
+  * **gantt**: Use for project timelines, implementation schedules, milestones, phases, delivery schedules. PREFERRED for time-based planning.
+  * **pie**: Use for data distributions, resource allocation, percentage breakdowns, statistical representations. PREFERRED for quantitative visualizations.
+  * **flowchart** or **graph**: Use ONLY for process flows, workflows, decision trees, or when no other diagram type fits. AVOID using flowcharts for system architecture - prefer sequenceDiagram or classDiagram instead.
 - Provide the diagram as a fenced code block with language `mermaid`, for example:
 ````mermaid
-flowchart TD
-  A[Start] --> B{Decision}
-  B -->|Yes| C[Action 1]
-  B -->|No| D[Action 2]
+sequenceDiagram
+  participant User
+  participant Frontend
+  participant API
+  participant Database
+  User->>Frontend: Submit Request
+  Frontend->>API: API Call
+  API->>Database: Query Data
+  Database-->>API: Results
+  API-->>Frontend: JSON Response
+  Frontend-->>User: Display Results
 ````
 or
 ````mermaid
-sequenceDiagram
-  participant Client
-  participant API
-  participant Database
-  Client->>API: Request
-  API->>Database: Query
-  Database-->>API: Results
-  API-->>Client: Response
+classDiagram
+  class UserInterface {
+    +render()
+    +handleInput()
+  }
+  class ProcessOrchestration {
+    +coordinate()
+    +manageWorkflow()
+  }
+  class CaseManagement {
+    +createCase()
+    +updateCase()
+  }
+  class BusinessRules {
+    +evaluateRules()
+    +applyLogic()
+  }
+  UserInterface --> ProcessOrchestration
+  ProcessOrchestration --> CaseManagement
+  ProcessOrchestration --> BusinessRules
+````
+or
+````mermaid
+stateDiagram-v2
+  [*] --> Draft
+  Draft --> Review
+  Review --> Approved
+  Review --> Rejected
+  Rejected --> Draft
+  Approved --> Published
+  Published --> [*]
 ````
 or
 ````mermaid
@@ -149,6 +219,14 @@ gantt
   section Phase 2
   Development: 2024-02-01, 60d
   Testing: 2024-04-01, 30d
+````
+or
+````mermaid
+pie title Resource Allocation
+  "Development" : 40
+  "Testing" : 25
+  "Documentation" : 15
+  "Project Management" : 20
 ````
 - Place the diagram where it best fits (for multi-section documents, include it in the most relevant section), and add one short caption line immediately after the fenced block. Example:
 Caption: High-level request flow from client to database.
