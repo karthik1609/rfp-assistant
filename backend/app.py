@@ -415,15 +415,15 @@ async def run_preprocess(req: PreprocessRequest) -> Dict[str, Any]:
     return response
 
 
-#function to render mermaid diagrams (via local renderer or Kroki fallback)
+#function to render mermaid diagrams via MCP
 @app.post('/render/mermaid')
 async def render_mermaid(req: RenderRequest):
     diagram = (req.diagram or "").strip()
     fmt = (req.format or 'png').lower()
     if not diagram:
         raise HTTPException(status_code=400, detail='No diagram provided')
-    if fmt not in ('png', 'svg'):
-        raise HTTPException(status_code=400, detail='Invalid format: choose png or svg')
+    if fmt != 'png':
+        raise HTTPException(status_code=400, detail='Only PNG format is supported via MCP')
 
     try:
         logger.info('Received raw diagram (escaped newlines): %s', diagram.replace('\n','\\n')[:1000])
@@ -437,6 +437,8 @@ async def render_mermaid(req: RenderRequest):
         caption = (m.group('cap') or '').strip() or None
         if caption:
             logger.info('Detected and stripped caption from diagram for rendering: %s', caption)
+    else:
+        diagram_text = diagram
     try:
         preview = diagram_text.replace('\n', '\\n')[:1000]
         logger.info('Diagram text preview (escaped newlines): %s', preview)
@@ -444,26 +446,24 @@ async def render_mermaid(req: RenderRequest):
     except Exception:
         logger.debug('Failed to produce diagram preview for logs')
     
-    kroki_url = f'https://kroki.io/mermaid/{fmt}'
+    from backend.mermaid.mcp_renderer import render_mermaid_to_png
 
     try:
-        logger.info('Requesting Kroki rendering (fmt=%s)', fmt)
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(kroki_url, content=diagram_text.encode('utf-8'), headers={"Content-Type": "text/plain"})
+        logger.info('Requesting MCP Mermaid rendering (PNG)')
+        png_bytes = await render_mermaid_to_png(diagram_text)
+        if not png_bytes:
+            raise HTTPException(status_code=500, detail='MCP Mermaid rendering returned no image')
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception('Kroki request failed: %s', e)
-        raise HTTPException(status_code=500, detail='Failed to contact Kroki rendering service')
+        logger.exception('MCP Mermaid rendering failed: %s', e)
+        raise HTTPException(status_code=500, detail=f'Failed to render Mermaid diagram: {str(e)}')
 
-    if resp.status_code != 200:
-        logger.error('Kroki returned status %s: %s', resp.status_code, resp.text[:200])
-        raise HTTPException(status_code=502, detail='Kroki rendering failed')
-
-    media_type = 'image/png' if fmt == 'png' else 'image/svg+xml'
-    logger.info('Kroki rendering succeeded; returning image bytes')
-    headers = {"X-Diagram-Renderer": "kroki"}
+    logger.info('MCP Mermaid rendering succeeded; returning PNG bytes (%d bytes)', len(png_bytes))
+    headers = {"X-Diagram-Renderer": "mcp-mermaid"}
     if caption:
         headers["X-Diagram-Caption"] = caption
-    return Response(content=resp.content, media_type=media_type, headers=headers)
+    return Response(content=png_bytes, media_type='image/png', headers=headers)
 
 
 class RequirementsRequest(BaseModel):

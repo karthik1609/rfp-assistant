@@ -21,8 +21,38 @@ RUN apt-get update && \
         gnupg \
         build-essential \
         wget \
-        fonts-liberation && \
+        fonts-liberation \
+        # Puppeteer/Chromium dependencies for MCP Mermaid server
+        chromium \
+        chromium-sandbox \
+        libnss3 \
+        libatk-bridge2.0-0 \
+        libatk1.0-0 \
+        libcups2 \
+        libdrm2 \
+        libdbus-1-3 \
+        libxkbcommon0 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxfixes3 \
+        libxrandr2 \
+        libgbm1 \
+        libasound2 \
+        libpangocairo-1.0-0 \
+        libcairo-gobject2 \
+        libgtk-3-0 && \
     rm -rf /var/lib/apt/lists/*
+
+# Install Node.js and npm for MCP Mermaid server
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set Puppeteer/Playwright to use system Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    PLAYWRIGHT_BROWSERS_PATH=/usr/bin \
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 COPY requirements.txt .
 RUN pip install --upgrade pip && \

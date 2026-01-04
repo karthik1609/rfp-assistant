@@ -533,24 +533,17 @@ def _parse_markdown_to_docx(doc, text: str):
             png_bytes = None
             
             try:
-                logger.debug('Attempting Kroki PNG rendering for diagram')
-                kroki_url = 'https://kroki.io/mermaid/png'
-                resp = httpx.post(kroki_url, content=sanitized_block.encode('utf-8'), headers={"Content-Type": "text/plain"}, timeout=30.0)
-                if resp.status_code == 200:
-                    kroki_png = resp.content
-                    if kroki_png and _is_png_bytes(kroki_png):
-                        png_bytes = kroki_png
-                        logger.info('Kroki PNG rendering succeeded (%d bytes)', len(png_bytes))
-                    else:
-                        logger.warning('Kroki returned invalid PNG (status 200 but no PNG header, %d bytes)', len(kroki_png) if kroki_png else 0)
+                logger.debug('Attempting MCP Mermaid PNG rendering for diagram')
+                from backend.mermaid.mcp_renderer import render_mermaid_to_png_sync
+                png_bytes = render_mermaid_to_png_sync(sanitized_block)
+                if png_bytes and _is_png_bytes(png_bytes):
+                    logger.info('MCP Mermaid PNG rendering succeeded (%d bytes)', len(png_bytes))
                 else:
-                    logger.warning('Kroki returned status %s for mermaid render', resp.status_code)
-                    if resp.status_code == 400:
-                        error_msg = resp.text[:500] if hasattr(resp, 'text') and resp.text else 'Unknown error'
-                        logger.error('Kroki syntax error - diagram code preview: %s', sanitized_block[:200])
-                        logger.error('Kroki error details: %s', error_msg)
+                    logger.warning('MCP Mermaid returned invalid PNG (no PNG header, %d bytes)', len(png_bytes) if png_bytes else 0)
+                    png_bytes = None
             except Exception as e:
-                logger.exception('Kroki PNG rendering failed: %s', e)
+                logger.exception('MCP Mermaid PNG rendering failed: %s', e)
+                png_bytes = None
 
             img_to_insert = png_bytes if png_bytes else None
 
@@ -614,58 +607,48 @@ def _parse_markdown_to_docx(doc, text: str):
                         cap_run.italic = True
                         cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
                     elif not inserted:
-                        logger.warning('Failed to insert PNG image, will fall back to Kroki')
+                        logger.warning('Failed to insert PNG image')
                         img_to_insert = None
                 except Exception as e:
-                    logger.exception('Failed to insert locally rendered mermaid image into docx (unfenced): %s', e)
+                    logger.exception('Failed to insert MCP-rendered mermaid image into docx (unfenced): %s', e)
                     img_to_insert = None
 
             if not img_to_insert:
                 try:
-                    kroki_url = 'https://kroki.io/mermaid/png'
-                    logger.debug('Attempting Kroki fallback for mermaid diagram (length=%d chars)', len(sanitized_block))
-                    resp = httpx.post(kroki_url, content=sanitized_block.encode('utf-8'), headers={"Content-Type": "text/plain"}, timeout=30.0)
-                    if resp.status_code == 200:
-                        img_bytes = resp.content
-                        if img_bytes and len(img_bytes) > 0:
-                            if img_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-                                try:
-                                    img_stream = BytesIO(img_bytes)
-                                    doc.add_picture(img_stream, width=Inches(5))
-                                    if caption_text:
-                                        cap_para = doc.add_paragraph()
-                                        cap_run = cap_para.add_run(caption_text)
-                                        cap_run.italic = True
-                                        cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                                    logger.info('Successfully inserted Kroki-rendered mermaid diagram')
-                                except Exception as e:
-                                    logger.warning('Failed to insert Kroki mermaid image into docx (unfenced): %s', e)
-                                    para = doc.add_paragraph(style='Normal')
-                                    para.style.font.name = 'Consolas'
-                                    para.style.font.size = Pt(10)
-                                    para.text = block_text
-                            else:
-                                logger.warning('Kroki returned invalid PNG (no PNG header, %d bytes)', len(img_bytes))
+                    logger.debug('Attempting MCP Mermaid fallback for mermaid diagram (length=%d chars)', len(sanitized_block))
+                    from backend.mermaid.mcp_renderer import render_mermaid_to_png_sync
+                    img_bytes = render_mermaid_to_png_sync(sanitized_block)
+                    if img_bytes and len(img_bytes) > 0:
+                        if img_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+                            try:
+                                img_stream = BytesIO(img_bytes)
+                                doc.add_picture(img_stream, width=Inches(5))
+                                if caption_text:
+                                    cap_para = doc.add_paragraph()
+                                    cap_run = cap_para.add_run(caption_text)
+                                    cap_run.italic = True
+                                    cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                logger.info('Successfully inserted MCP-rendered mermaid diagram')
+                            except Exception as e:
+                                logger.warning('Failed to insert MCP mermaid image into docx (unfenced): %s', e)
                                 para = doc.add_paragraph(style='Normal')
                                 para.style.font.name = 'Consolas'
                                 para.style.font.size = Pt(10)
                                 para.text = block_text
                         else:
-                            logger.warning('Kroki returned empty response')
+                            logger.warning('MCP Mermaid returned invalid PNG (no PNG header, %d bytes)', len(img_bytes))
                             para = doc.add_paragraph(style='Normal')
                             para.style.font.name = 'Consolas'
                             para.style.font.size = Pt(10)
                             para.text = block_text
                     else:
-                        error_text = resp.text[:500] if hasattr(resp, 'text') else 'no error text'
-                        logger.warning('Kroki returned status %s for mermaid render (unfenced): %s', resp.status_code, error_text)
-                        logger.debug('Diagram that failed: %s', sanitized_block[:200])
+                        logger.warning('MCP Mermaid returned empty response')
                         para = doc.add_paragraph(style='Normal')
                         para.style.font.name = 'Consolas'
                         para.style.font.size = Pt(10)
                         para.text = block_text
                 except Exception as e:
-                    logger.exception('Failed to call Kroki for mermaid rendering (unfenced): %s', e)
+                    logger.exception('Failed to call MCP Mermaid for rendering (unfenced): %s', e)
                     para = doc.add_paragraph(style='Normal')
                     para.style.font.name = 'Consolas'
                     para.style.font.size = Pt(10)
@@ -697,25 +680,16 @@ def _parse_markdown_to_docx(doc, text: str):
                             rendered = None
                             sanitized_block = _sanitize_mermaid_labels(block_text)
                             try:
-                                logger.debug('Attempting Kroki PNG rendering for fenced diagram')
-                                kroki_url = 'https://kroki.io/mermaid/png'
-                                resp = httpx.post(kroki_url, content=sanitized_block.encode('utf-8'), headers={"Content-Type": "text/plain"}, timeout=30.0)
-                                if resp.status_code == 200:
-                                    rendered = resp.content
-                                    if rendered and _is_png_bytes(rendered):
-                                        logger.info('Kroki PNG rendering succeeded for fenced diagram (%d bytes)', len(rendered))
-                                    else:
-                                        logger.warning('Kroki returned invalid PNG for fenced diagram')
-                                        rendered = None
+                                logger.debug('Attempting MCP Mermaid PNG rendering for fenced diagram')
+                                from backend.mermaid.mcp_renderer import render_mermaid_to_png_sync
+                                rendered = render_mermaid_to_png_sync(sanitized_block)
+                                if rendered and _is_png_bytes(rendered):
+                                    logger.info('MCP Mermaid PNG rendering succeeded for fenced diagram (%d bytes)', len(rendered))
                                 else:
-                                    logger.warning('Kroki returned status %s for fenced mermaid render', resp.status_code)
-                                    if resp.status_code == 400:
-                                        error_msg = resp.text[:500] if hasattr(resp, 'text') and resp.text else 'Unknown error'
-                                        logger.error('Kroki syntax error - fenced diagram code preview: %s', sanitized_block[:200])
-                                        logger.error('Kroki error details: %s', error_msg)
+                                    logger.warning('MCP Mermaid returned invalid PNG for fenced diagram')
                                     rendered = None
                             except Exception as e:
-                                logger.exception('Kroki PNG rendering failed for fenced diagram: %s', e)
+                                logger.exception('MCP Mermaid PNG rendering failed for fenced diagram: %s', e)
                                 rendered = None
 
                             if rendered:
@@ -726,11 +700,11 @@ def _parse_markdown_to_docx(doc, text: str):
                                             im = Image.open(BytesIO(rendered))
                                             im.verify()
                                         except Exception:
-                                            logger.warning('Rendered mermaid bytes are not a valid image according to PIL; falling back to Kroki')
+                                            logger.warning('Rendered mermaid bytes are not a valid image according to PIL')
                                             rendered = None
                                     else:
                                         if not _is_png_bytes(rendered):
-                                            logger.warning('Rendered mermaid bytes do not have a PNG header; falling back to Kroki')
+                                            logger.warning('Rendered mermaid bytes do not have a PNG header')
                                             rendered = None
 
                                     if rendered:
@@ -764,11 +738,11 @@ def _parse_markdown_to_docx(doc, text: str):
 
                             if not rendered:
                                 try:
-                                    kroki_url = 'https://kroki.io/mermaid/png'
-                                    resp = httpx.post(kroki_url, content=sanitized_block.encode('utf-8'), headers={"Content-Type": "text/plain"}, timeout=30.0)
-                                    if resp.status_code == 200:
-                                        logger.info('Kroki returned image bytes for mermaid block')
-                                        img_bytes = resp.content
+                                    logger.debug('Attempting MCP Mermaid fallback for fenced diagram')
+                                    from backend.mermaid.mcp_renderer import render_mermaid_to_png_sync
+                                    img_bytes = render_mermaid_to_png_sync(sanitized_block)
+                                    if img_bytes:
+                                        logger.info('MCP Mermaid returned image bytes for mermaid block')
                                         try:
                                             img_stream = BytesIO(img_bytes)
                                             doc.add_picture(img_stream, width=Inches(5))
@@ -778,19 +752,19 @@ def _parse_markdown_to_docx(doc, text: str):
                                                 cap_run.italic = True
                                                 cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
                                         except Exception as e:
-                                            logger.warning('Failed to insert Kroki mermaid image into docx: %s', e)
+                                            logger.warning('Failed to insert MCP mermaid image into docx: %s', e)
                                             para = doc.add_paragraph(style='Normal')
                                             para.style.font.name = 'Consolas'
                                             para.style.font.size = Pt(10)
                                             para.text = block_text
                                     else:
-                                        logger.warning('Kroki returned status %s for mermaid render', resp.status_code)
+                                        logger.warning('MCP Mermaid returned no image bytes')
                                         para = doc.add_paragraph(style='Normal')
                                         para.style.font.name = 'Consolas'
                                         para.style.font.size = Pt(10)
                                         para.text = block_text
                                 except Exception as e:
-                                    logger.exception('Failed to call Kroki for mermaid rendering: %s', e)
+                                    logger.exception('Failed to call MCP Mermaid for rendering: %s', e)
                                     para = doc.add_paragraph(style='Normal')
                                     para.style.font.name = 'Consolas'
                                     para.style.font.size = Pt(10)
