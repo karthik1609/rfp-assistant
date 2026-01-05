@@ -5,8 +5,12 @@ import json
 import logging
 from typing import Any, Dict
 
-from backend.models import (BuildQuery, ExtractionResult, RequirementItem,
-                            RequirementsResult)
+from backend.models import (
+    BuildQuery,
+    ExtractionResult,
+    RequirementItem,
+    RequirementsResult,
+)
 
 logger = logging.getLogger(__name__)
 

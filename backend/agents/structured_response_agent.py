@@ -8,8 +8,7 @@ from backend.agents.response_agent import _clarity_check
 from backend.knowledge_base import FusionAIxKnowledgeBase
 from backend.llm.client import chat_completion
 from backend.memory.mem0_client import search_memories
-from backend.models import (RequirementsResult, ResponseResult,
-                            StructureDetectionResult)
+from backend.models import RequirementsResult, ResponseResult, StructureDetectionResult
 from backend.rag import RAGSystem
 
 logger = logging.getLogger(__name__)

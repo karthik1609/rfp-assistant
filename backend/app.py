@@ -16,28 +16,38 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend.agents.build_query import (build_query,
-                                        build_query_for_single_requirement)
+from backend.agents.build_query import build_query, build_query_for_single_requirement
 from backend.agents.preprocess_agent import run_preprocess_agent
 from backend.agents.quality_agent import assess_response_quality
 from backend.agents.question_agent import (
     analyze_build_query_for_questions,
     analyze_build_query_for_questions_legacy,
-    analyze_requirements_for_questions, check_if_more_questions_needed,
-    get_next_critical_question, infer_answered_questions_from_answer)
+    analyze_requirements_for_questions,
+    check_if_more_questions_needed,
+    get_next_critical_question,
+    infer_answered_questions_from_answer,
+)
 from backend.agents.requirements_agent import run_requirements_agent
 from backend.agents.response_agent import run_response_agent
 from backend.agents.structure_detection_agent import detect_structure
-from backend.agents.structured_response_agent import \
-    run_structured_response_agent
+from backend.agents.structured_response_agent import run_structured_response_agent
 from backend.knowledge_base import FusionAIxKnowledgeBase
 from backend.knowledge_base.company_kb import CompanyKnowledgeBase
-from backend.memory.mem0_client import (store_build_query_result,
-                                        store_preprocess_result,
-                                        store_requirements_result)
-from backend.models import (Answer, BuildQuery, ConversationContext,
-                            ExtractionResult, PreprocessResult, Question,
-                            RequirementsResult, StructureDetectionResult)
+from backend.memory.mem0_client import (
+    store_build_query_result,
+    store_preprocess_result,
+    store_requirements_result,
+)
+from backend.models import (
+    Answer,
+    BuildQuery,
+    ConversationContext,
+    ExtractionResult,
+    PreprocessResult,
+    Question,
+    RequirementsResult,
+    StructureDetectionResult,
+)
 from backend.pipeline.text_extraction import extract_text_from_file
 from backend.rag import RAGSystem
 

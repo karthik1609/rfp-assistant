@@ -568,8 +568,7 @@ def _parse_markdown_to_docx(doc, text: str):
 
             try:
                 logger.debug("Attempting MCP Mermaid PNG rendering for diagram")
-                from backend.mermaid.mcp_renderer import \
-                    render_mermaid_to_png_sync
+                from backend.mermaid.mcp_renderer import render_mermaid_to_png_sync
 
                 png_bytes = render_mermaid_to_png_sync(sanitized_block)
                 if png_bytes and _is_png_bytes(png_bytes):
@@ -684,8 +683,7 @@ def _parse_markdown_to_docx(doc, text: str):
                         "Attempting MCP Mermaid fallback for mermaid diagram (length=%d chars)",
                         len(sanitized_block),
                     )
-                    from backend.mermaid.mcp_renderer import \
-                        render_mermaid_to_png_sync
+                    from backend.mermaid.mcp_renderer import render_mermaid_to_png_sync
 
                     img_bytes = render_mermaid_to_png_sync(sanitized_block)
                     if img_bytes and len(img_bytes) > 0:
@@ -772,8 +770,9 @@ def _parse_markdown_to_docx(doc, text: str):
                                 logger.debug(
                                     "Attempting MCP Mermaid PNG rendering for fenced diagram"
                                 )
-                                from backend.mermaid.mcp_renderer import \
-                                    render_mermaid_to_png_sync
+                                from backend.mermaid.mcp_renderer import (
+                                    render_mermaid_to_png_sync,
+                                )
 
                                 rendered = render_mermaid_to_png_sync(sanitized_block)
                                 if rendered and _is_png_bytes(rendered):
@@ -857,8 +856,9 @@ def _parse_markdown_to_docx(doc, text: str):
                                     logger.debug(
                                         "Attempting MCP Mermaid fallback for fenced diagram"
                                     )
-                                    from backend.mermaid.mcp_renderer import \
-                                        render_mermaid_to_png_sync
+                                    from backend.mermaid.mcp_renderer import (
+                                        render_mermaid_to_png_sync,
+                                    )
 
                                     img_bytes = render_mermaid_to_png_sync(
                                         sanitized_block

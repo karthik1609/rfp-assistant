@@ -8,8 +8,13 @@ from typing import Any, Dict, List, Optional, Tuple
 from backend.agents.prompts import QUESTION_SYSTEM_PROMPT
 from backend.knowledge_base.company_kb import CompanyKnowledgeBase
 from backend.llm.client import chat_completion
-from backend.models import (Answer, BuildQuery, Question, RequirementItem,
-                            RequirementsResult)
+from backend.models import (
+    Answer,
+    BuildQuery,
+    Question,
+    RequirementItem,
+    RequirementsResult,
+)
 from backend.rag import RAGSystem
 
 logger = logging.getLogger(__name__)
