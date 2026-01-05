@@ -264,3 +264,45 @@ export function parseRequirementsFromText(text, originalRequirements = null) {
   return result;
 }
 
+export function formatDate(date) {
+  if (!date) return '-';
+  
+  try {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '-';
+    
+    return d.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (error) {
+    return '-';
+  }
+}
+
+export function formatFileSize(bytes) {
+  if (bytes === null || bytes === undefined || isNaN(bytes)) return '-';
+  
+  if (bytes === 0) return '0 B';
+  
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  
+  const size = bytes / Math.pow(k, i);
+  // Remove unnecessary decimals (if whole number, show as integer)
+  const formatted = size % 1 === 0 ? Math.round(size).toString() : Math.round(size * 100) / 100;
+  
+  return formatted + ' ' + sizes[i];
+}
+
+export function truncateText(text, maxLength) {
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  
+  return text.substring(0, maxLength) + '...';
+}
+
