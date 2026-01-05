@@ -3,19 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from backend.llm.client import chat_completion
-from backend.models import (
-    RequirementItem,
-    Question,
-    BuildQuery,
-    RequirementsResult,
-    Answer,
-)
-from backend.rag import RAGSystem
-from backend.knowledge_base.company_kb import CompanyKnowledgeBase
 from backend.agents.prompts import QUESTION_SYSTEM_PROMPT
+from backend.knowledge_base.company_kb import CompanyKnowledgeBase
+from backend.llm.client import chat_completion
+from backend.models import (Answer, BuildQuery, Question, RequirementItem,
+                            RequirementsResult)
+from backend.rag import RAGSystem
 
 logger = logging.getLogger(__name__)
 QUESTION_MODEL = "gpt-5-chat"

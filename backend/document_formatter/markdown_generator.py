@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Dict, List, Any, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from backend.models import RequirementsResult, ExtractionResult
+from backend.models import ExtractionResult, RequirementsResult
 
 logger = logging.getLogger(__name__)
 

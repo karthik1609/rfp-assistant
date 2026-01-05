@@ -1,56 +1,45 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import httpx
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import httpx
-import re
-import asyncio
 
-
-from backend.pipeline.text_extraction import extract_text_from_file
+from backend.agents.build_query import (build_query,
+                                        build_query_for_single_requirement)
 from backend.agents.preprocess_agent import run_preprocess_agent
-from backend.agents.requirements_agent import run_requirements_agent
-from backend.agents.build_query import build_query, build_query_for_single_requirement
-from backend.agents.response_agent import run_response_agent
-from backend.agents.structure_detection_agent import detect_structure
-from backend.agents.structured_response_agent import run_structured_response_agent
+from backend.agents.quality_agent import assess_response_quality
 from backend.agents.question_agent import (
-    analyze_requirements_for_questions,
     analyze_build_query_for_questions,
     analyze_build_query_for_questions_legacy,
-    infer_answered_questions_from_answer,
-    get_next_critical_question,
-    check_if_more_questions_needed,
-)
-from backend.agents.quality_agent import assess_response_quality
-from backend.rag import RAGSystem
-from backend.models import (
-    ExtractionResult,
-    RequirementsResult,
-    StructureDetectionResult,
-    Question,
-    Answer,
-    ConversationContext,
-    BuildQuery,
-    PreprocessResult,
-)
+    analyze_requirements_for_questions, check_if_more_questions_needed,
+    get_next_critical_question, infer_answered_questions_from_answer)
+from backend.agents.requirements_agent import run_requirements_agent
+from backend.agents.response_agent import run_response_agent
+from backend.agents.structure_detection_agent import detect_structure
+from backend.agents.structured_response_agent import \
+    run_structured_response_agent
 from backend.knowledge_base import FusionAIxKnowledgeBase
 from backend.knowledge_base.company_kb import CompanyKnowledgeBase
-from backend.memory.mem0_client import (
-    store_preprocess_result,
-    store_requirements_result,
-    store_build_query_result,
-)
+from backend.memory.mem0_client import (store_build_query_result,
+                                        store_preprocess_result,
+                                        store_requirements_result)
+from backend.models import (Answer, BuildQuery, ConversationContext,
+                            ExtractionResult, PreprocessResult, Question,
+                            RequirementsResult, StructureDetectionResult)
+from backend.pipeline.text_extraction import extract_text_from_file
+from backend.rag import RAGSystem
 
 
 # function to setup rag system and load the fusionAIx knowledge base
@@ -2154,10 +2143,11 @@ def _html_to_docx(html_content: str) -> bytes:
         )
 
     try:
-        from docx import Document
-        from docx.shared import Pt, RGBColor
-        from docx.enum.text import WD_ALIGN_PARAGRAPH
         from io import BytesIO
+
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.shared import Pt, RGBColor
     except ImportError:
         raise ImportError(
             "python-docx is not installed. Install it with: pip install python-docx"

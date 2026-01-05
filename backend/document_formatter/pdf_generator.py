@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import io
 import logging
-from pathlib import Path
-from typing import Dict, List, Any, Optional
-from datetime import datetime
-
 import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from backend.models import RequirementsResult, ExtractionResult
+from backend.models import ExtractionResult, RequirementsResult
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +265,7 @@ def generate_rfp_pdf(
     css_path = Path(__file__).parent.parent / "static" / "styles" / "document.css"
 
     try:
-        from weasyprint import HTML, CSS
+        from weasyprint import CSS, HTML
     except ImportError as e:
         logger.error(
             "WeasyPrint import failed. Please install system dependencies. "

@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
-import os
 import math
+import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -496,7 +496,7 @@ def _cosine_similarity(a: List[float], b: List[float]) -> float:
 
 # function to compute an embedding for text using HF or Azure clients
 def _get_embedding(text: str) -> List[float]:
-    from backend.llm.client import get_hf_client, get_azure_client
+    from backend.llm.client import get_azure_client, get_hf_client
 
     if not text:
         return []

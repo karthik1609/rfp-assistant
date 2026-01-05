@@ -4,16 +4,16 @@ import hashlib
 import io
 import logging
 import os
+import pickle
 import time
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
-import pickle
+from typing import Any, Dict, List, Optional, Tuple
 
 import faiss
 import numpy as np
 from dotenv import load_dotenv
 
-from backend.llm.client import get_azure_client, REQUEST_TIMEOUT
+from backend.llm.client import REQUEST_TIMEOUT, get_azure_client
 from backend.pipeline.text_extraction import extract_text_from_file
 
 logger = logging.getLogger(__name__)

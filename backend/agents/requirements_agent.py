@@ -6,10 +6,9 @@ import logging
 import re
 from typing import Any, Dict
 
+from backend.agents.prompts import REQUIREMENTS_SYSTEM_PROMPT
 from backend.llm.client import chat_completion
 from backend.models import RequirementItem, RequirementsResult
-from backend.agents.prompts import REQUIREMENTS_SYSTEM_PROMPT
-
 
 logger = logging.getLogger(__name__)
 REQUIREMENTS_MODEL = "gpt-5-chat"

@@ -6,10 +6,9 @@ import logging
 import re
 from typing import Any, Dict
 
+from backend.agents.prompts import PREPROCESS_SYSTEM_PROMPT
 from backend.llm.client import chat_completion
 from backend.models import PreprocessResult
-from backend.agents.prompts import PREPROCESS_SYSTEM_PROMPT
-
 
 logger = logging.getLogger(__name__)
 

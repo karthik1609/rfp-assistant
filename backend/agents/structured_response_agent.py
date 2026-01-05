@@ -3,17 +3,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional
 
-from backend.llm.client import chat_completion
-from backend.models import (
-    RequirementsResult,
-    StructureDetectionResult,
-    ResponseResult,
-)
-from backend.rag import RAGSystem
-from backend.knowledge_base import FusionAIxKnowledgeBase
 from backend.agents.prompts import STRUCTURED_RESPONSE_SYSTEM_PROMPT
 from backend.agents.response_agent import _clarity_check
+from backend.knowledge_base import FusionAIxKnowledgeBase
+from backend.llm.client import chat_completion
 from backend.memory.mem0_client import search_memories
+from backend.models import (RequirementsResult, ResponseResult,
+                            StructureDetectionResult)
+from backend.rag import RAGSystem
 
 logger = logging.getLogger(__name__)
 STRUCTURED_RESPONSE_MODEL = "gpt-5-chat"

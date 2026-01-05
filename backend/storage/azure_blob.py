@@ -4,10 +4,10 @@ import io
 import logging
 import os
 from pathlib import Path
-from typing import Optional, BinaryIO
+from typing import BinaryIO, Optional
 
-from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 from azure.core.exceptions import AzureError
+from azure.storage.blob import BlobClient, BlobServiceClient, ContainerClient
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)

@@ -1,25 +1,26 @@
 from __future__ import annotations
 
 import logging
-import re
-import httpx
 import os
+import re
 import tempfile
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-from datetime import datetime
+from typing import Any, Dict, List, Optional
 
-from backend.models import RequirementsResult, ExtractionResult
+import httpx
+
+from backend.models import ExtractionResult, RequirementsResult
 
 logger = logging.getLogger(__name__)
 try:
     from docx import Document
-    from docx.shared import Pt, Inches, RGBColor
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
     from docx.enum.section import WD_SECTION_START
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.shared import Inches, Pt, RGBColor
 
     DOCX_AVAILABLE = True
 except Exception:
@@ -567,7 +568,8 @@ def _parse_markdown_to_docx(doc, text: str):
 
             try:
                 logger.debug("Attempting MCP Mermaid PNG rendering for diagram")
-                from backend.mermaid.mcp_renderer import render_mermaid_to_png_sync
+                from backend.mermaid.mcp_renderer import \
+                    render_mermaid_to_png_sync
 
                 png_bytes = render_mermaid_to_png_sync(sanitized_block)
                 if png_bytes and _is_png_bytes(png_bytes):
@@ -682,7 +684,8 @@ def _parse_markdown_to_docx(doc, text: str):
                         "Attempting MCP Mermaid fallback for mermaid diagram (length=%d chars)",
                         len(sanitized_block),
                     )
-                    from backend.mermaid.mcp_renderer import render_mermaid_to_png_sync
+                    from backend.mermaid.mcp_renderer import \
+                        render_mermaid_to_png_sync
 
                     img_bytes = render_mermaid_to_png_sync(sanitized_block)
                     if img_bytes and len(img_bytes) > 0:
@@ -769,9 +772,8 @@ def _parse_markdown_to_docx(doc, text: str):
                                 logger.debug(
                                     "Attempting MCP Mermaid PNG rendering for fenced diagram"
                                 )
-                                from backend.mermaid.mcp_renderer import (
-                                    render_mermaid_to_png_sync,
-                                )
+                                from backend.mermaid.mcp_renderer import \
+                                    render_mermaid_to_png_sync
 
                                 rendered = render_mermaid_to_png_sync(sanitized_block)
                                 if rendered and _is_png_bytes(rendered):
@@ -855,9 +857,8 @@ def _parse_markdown_to_docx(doc, text: str):
                                     logger.debug(
                                         "Attempting MCP Mermaid fallback for fenced diagram"
                                     )
-                                    from backend.mermaid.mcp_renderer import (
-                                        render_mermaid_to_png_sync,
-                                    )
+                                    from backend.mermaid.mcp_renderer import \
+                                        render_mermaid_to_png_sync
 
                                     img_bytes = render_mermaid_to_png_sync(
                                         sanitized_block

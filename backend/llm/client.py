@@ -1,11 +1,10 @@
 import logging
 import os
 import time
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-from openai import OpenAI, AzureOpenAI
-from openai import APITimeoutError
+from openai import APITimeoutError, AzureOpenAI, OpenAI
 
 logger = logging.getLogger(__name__)
 

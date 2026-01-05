@@ -5,9 +5,9 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from backend.agents.prompts import STRUCTURE_DETECTION_SYSTEM_PROMPT
 from backend.llm.client import chat_completion
 from backend.models import RequirementItem
-from backend.agents.prompts import STRUCTURE_DETECTION_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 STRUCTURE_DETECTION_MODEL = "gpt-5-chat"

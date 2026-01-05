@@ -3,15 +3,13 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import tempfile
 from pathlib import Path
 from typing import List, Union
-import tempfile
-
 
 from PIL import Image
 
 from backend.llm.client import chat_completion_with_vision
-
 
 logger = logging.getLogger(__name__)
 

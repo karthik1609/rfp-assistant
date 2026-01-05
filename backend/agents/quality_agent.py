@@ -3,11 +3,11 @@ from __future__ import annotations
 import functools
 import json
 import logging
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
+from backend.agents.prompts import QUALITY_SYSTEM_PROMPT
 from backend.llm.client import chat_completion
 from backend.models import RequirementItem
-from backend.agents.prompts import QUALITY_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 QUALITY_MODEL = "gpt-5-chat"

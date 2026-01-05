@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 COMPANY_NAME = "fusionAIx"
 COMPANY_WEBSITE = "www.fusionaix.com"
