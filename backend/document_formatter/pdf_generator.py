@@ -29,11 +29,11 @@ Our proven capabilities span three core technology platforms: Pega Constellation
 
 To accelerate time-to-value, fusionAIx offers proprietary accelerators and solution components including fxAgentSDK, fxAIStudio, fxMockUpToView, and fxSmartDCO. These tools enable rapid development, intelligent automation, and streamlined project delivery.
 
-We support clients across diverse industries including Insurance, Banking & Finance, Government & Public Sector, Automotive & Fleet Management, and Travel & Tourism, combining platform expertise with structured knowledge transfer to help customers build sustainable, future-ready capabilities."""
+We support clients across diverse industries including Insurance, Banking & Finance, Government & Public Sector, Automotive & Fleet Management, and Travel & Tourism, combining platform expertise with structured knowledge transfer to help customers build sustainable, future-ready capabilities.""",
 }
 
 
-#function to generate PDF bytes from responses using HTML templates and WeasyPrint
+# function to generate PDF bytes from responses using HTML templates and WeasyPrint
 def generate_rfp_pdf(
     individual_responses: List[Dict[str, Any]],
     requirements_result: RequirementsResult,
@@ -45,206 +45,212 @@ def generate_rfp_pdf(
         "Generating PDF document: %d requirement responses",
         len(individual_responses),
     )
-    
+
     template_dir = Path(__file__).parent.parent / "templates"
     static_dir = Path(__file__).parent.parent / "static"
     project_root = Path(__file__).parent.parent.parent
-    
-    #function to convert markdown-like response text into safe HTML fragments
+
+    # function to convert markdown-like response text into safe HTML fragments
     def format_response_text(text: str) -> str:
         if not text:
             return ""
-        
-        text = re.sub(r'^#### (.*?)$', r'<h4>\1</h4>', text, flags=re.MULTILINE)
-        text = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', text, flags=re.MULTILINE)
-        text = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', text, flags=re.MULTILINE)
-        text = re.sub(r'^# (.*?)$', r'<h2>\1</h2>', text, flags=re.MULTILINE)
-        
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
-        
-        lines = text.split('\n')
+
+        text = re.sub(r"^#### (.*?)$", r"<h4>\1</h4>", text, flags=re.MULTILINE)
+        text = re.sub(r"^### (.*?)$", r"<h3>\1</h3>", text, flags=re.MULTILINE)
+        text = re.sub(r"^## (.*?)$", r"<h2>\1</h2>", text, flags=re.MULTILINE)
+        text = re.sub(r"^# (.*?)$", r"<h2>\1</h2>", text, flags=re.MULTILINE)
+
+        text = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", text)
+
+        lines = text.split("\n")
         formatted_lines = []
         in_table = False
         table_rows = []
         header_row = None
-        
+
         i = 0
         while i < len(lines):
             line = lines[i]
             stripped = line.strip()
-            
+
             if not stripped:
                 if in_table and table_rows:
-                    formatted_lines.append('<table>')
+                    formatted_lines.append("<table>")
                     if header_row:
-                        formatted_lines.append('<thead><tr>')
+                        formatted_lines.append("<thead><tr>")
                         for cell in header_row:
-                            formatted_lines.append(f'<th>{cell}</th>')
-                        formatted_lines.append('</tr></thead>')
-                    formatted_lines.append('<tbody>')
+                            formatted_lines.append(f"<th>{cell}</th>")
+                        formatted_lines.append("</tr></thead>")
+                    formatted_lines.append("<tbody>")
                     for row in table_rows:
-                        formatted_lines.append('<tr>')
+                        formatted_lines.append("<tr>")
                         for cell in row:
-                            formatted_lines.append(f'<td>{cell}</td>')
-                        formatted_lines.append('</tr>')
-                    formatted_lines.append('</tbody></table>')
+                            formatted_lines.append(f"<td>{cell}</td>")
+                        formatted_lines.append("</tr>")
+                    formatted_lines.append("</tbody></table>")
                     in_table = False
                     table_rows = []
                     header_row = None
-                formatted_lines.append('')
+                formatted_lines.append("")
                 i += 1
                 continue
-            
-            if '|' in stripped and not stripped.startswith('#'):
+
+            if "|" in stripped and not stripped.startswith("#"):
                 if i + 1 < len(lines):
                     next_line = lines[i + 1].strip()
-                    if re.match(r'^[\|\s:\-]+$', next_line):
-                        cells = [cell.strip() for cell in stripped.split('|') if cell.strip()]
+                    if re.match(r"^[\|\s:\-]+$", next_line):
+                        cells = [
+                            cell.strip() for cell in stripped.split("|") if cell.strip()
+                        ]
                         if cells:
                             header_row = cells
                             i += 2
                             in_table = True
                             table_rows = []
                             continue
-                
+
                 if in_table:
-                    cells = [cell.strip() for cell in stripped.split('|') if cell.strip()]
+                    cells = [
+                        cell.strip() for cell in stripped.split("|") if cell.strip()
+                    ]
                     if cells:
                         table_rows.append(cells)
                     i += 1
                     continue
                 elif i + 1 < len(lines):
                     next_line = lines[i + 1].strip()
-                    if re.match(r'^[\|\s:\-]+$', next_line):
-                        cells = [cell.strip() for cell in stripped.split('|') if cell.strip()]
+                    if re.match(r"^[\|\s:\-]+$", next_line):
+                        cells = [
+                            cell.strip() for cell in stripped.split("|") if cell.strip()
+                        ]
                         if cells:
                             header_row = cells
                             i += 2
                             in_table = True
                             table_rows = []
                             continue
-                
+
                 formatted_lines.append(stripped)
                 i += 1
                 continue
             else:
                 if in_table and table_rows:
-                    formatted_lines.append('<table>')
+                    formatted_lines.append("<table>")
                     if header_row:
-                        formatted_lines.append('<thead><tr>')
+                        formatted_lines.append("<thead><tr>")
                         for cell in header_row:
-                            formatted_lines.append(f'<th>{cell}</th>')
-                        formatted_lines.append('</tr></thead>')
-                    formatted_lines.append('<tbody>')
+                            formatted_lines.append(f"<th>{cell}</th>")
+                        formatted_lines.append("</tr></thead>")
+                    formatted_lines.append("<tbody>")
                     for row in table_rows:
-                        formatted_lines.append('<tr>')
+                        formatted_lines.append("<tr>")
                         for cell in row:
-                            formatted_lines.append(f'<td>{cell}</td>')
-                        formatted_lines.append('</tr>')
-                    formatted_lines.append('</tbody></table>')
+                            formatted_lines.append(f"<td>{cell}</td>")
+                        formatted_lines.append("</tr>")
+                    formatted_lines.append("</tbody></table>")
                     in_table = False
                     table_rows = []
                     header_row = None
-                
+
                 formatted_lines.append(stripped)
                 i += 1
-        
+
         if in_table and table_rows:
-            formatted_lines.append('<table>')
+            formatted_lines.append("<table>")
             if header_row:
-                formatted_lines.append('<thead><tr>')
+                formatted_lines.append("<thead><tr>")
                 for cell in header_row:
-                    formatted_lines.append(f'<th>{cell}</th>')
-                formatted_lines.append('</tr></thead>')
-            formatted_lines.append('<tbody>')
+                    formatted_lines.append(f"<th>{cell}</th>")
+                formatted_lines.append("</tr></thead>")
+            formatted_lines.append("<tbody>")
             for row in table_rows:
-                formatted_lines.append('<tr>')
+                formatted_lines.append("<tr>")
                 for cell in row:
-                    formatted_lines.append(f'<td>{cell}</td>')
-                formatted_lines.append('</tr>')
-            formatted_lines.append('</tbody></table>')
-        
-        text = '\n'.join(formatted_lines)
-        
-        lines = text.split('\n')
+                    formatted_lines.append(f"<td>{cell}</td>")
+                formatted_lines.append("</tr>")
+            formatted_lines.append("</tbody></table>")
+
+        text = "\n".join(formatted_lines)
+
+        lines = text.split("\n")
         formatted_lines = []
         in_list = False
         list_type = None
-        
+
         for line in lines:
             stripped = line.strip()
-            
+
             if not stripped:
                 if in_list:
-                    formatted_lines.append(f'</{list_type}>')
+                    formatted_lines.append(f"</{list_type}>")
                     in_list = False
                     list_type = None
                 continue
-            
-            if stripped.startswith('<h'):
+
+            if stripped.startswith("<h"):
                 if in_list:
-                    formatted_lines.append(f'</{list_type}>')
+                    formatted_lines.append(f"</{list_type}>")
                     in_list = False
                     list_type = None
                 formatted_lines.append(stripped)
                 continue
-            
-            if stripped.startswith('- ') or stripped.startswith('* '):
-                if not in_list or list_type != 'ul':
+
+            if stripped.startswith("- ") or stripped.startswith("* "):
+                if not in_list or list_type != "ul":
                     if in_list:
-                        formatted_lines.append(f'</{list_type}>')
-                    formatted_lines.append('<ul>')
+                        formatted_lines.append(f"</{list_type}>")
+                    formatted_lines.append("<ul>")
                     in_list = True
-                    list_type = 'ul'
+                    list_type = "ul"
                 content = stripped[2:].strip()
-                formatted_lines.append(f'<li>{content}</li>')
-            elif re.match(r'^\d+\.\s+', stripped):
-                if not in_list or list_type != 'ol':
+                formatted_lines.append(f"<li>{content}</li>")
+            elif re.match(r"^\d+\.\s+", stripped):
+                if not in_list or list_type != "ol":
                     if in_list:
-                        formatted_lines.append(f'</{list_type}>')
-                    formatted_lines.append('<ol>')
+                        formatted_lines.append(f"</{list_type}>")
+                    formatted_lines.append("<ol>")
                     in_list = True
-                    list_type = 'ol'
-                match = re.match(r'^\d+\.\s*(.*)', stripped)
+                    list_type = "ol"
+                match = re.match(r"^\d+\.\s*(.*)", stripped)
                 if match:
-                    formatted_lines.append(f'<li>{match.group(1)}</li>')
+                    formatted_lines.append(f"<li>{match.group(1)}</li>")
             else:
                 if in_list:
-                    formatted_lines.append(f'</{list_type}>')
+                    formatted_lines.append(f"</{list_type}>")
                     in_list = False
                     list_type = None
-                if not stripped.startswith('<'):
-                    formatted_lines.append(f'<p>{stripped}</p>')
+                if not stripped.startswith("<"):
+                    formatted_lines.append(f"<p>{stripped}</p>")
                 else:
                     formatted_lines.append(stripped)
-        
+
         if in_list:
-            formatted_lines.append(f'</{list_type}>')
-        
-        result = '\n'.join(formatted_lines)
-        result = re.sub(r'(<br>\s*){3,}', '<br><br>', result)
-        result = re.sub(r'<p>\s*</p>', '', result)
+            formatted_lines.append(f"</{list_type}>")
+
+        result = "\n".join(formatted_lines)
+        result = re.sub(r"(<br>\s*){3,}", "<br><br>", result)
+        result = re.sub(r"<p>\s*</p>", "", result)
         return result
-    
+
     env = Environment(
         loader=FileSystemLoader(str(template_dir)),
-        autoescape=select_autoescape(['html', 'xml'])
+        autoescape=select_autoescape(["html", "xml"]),
     )
-    env.filters['format_response'] = format_response_text
-    
+    env.filters["format_response"] = format_response_text
+
     logo_path = project_root / COMPANY_INFO["logo_path"]
     if not logo_path.exists():
         logger.warning("Logo file not found at %s, using placeholder", logo_path)
         logo_path_str = COMPANY_INFO["logo_path"]
     else:
         logo_path_str = COMPANY_INFO["logo_path"]
-    
+
     if not rfp_title:
         rfp_title = extraction_result.language.upper()
-    
+
     company_info_with_logo = COMPANY_INFO.copy()
     company_info_with_logo["logo_path"] = logo_path_str
-    
+
     context = {
         "company_info": company_info_with_logo,
         "rfp_title": rfp_title,
@@ -252,12 +258,12 @@ def generate_rfp_pdf(
         "individual_responses": individual_responses,
         "extraction_result": extraction_result,
     }
-    
+
     template = env.get_template("rfp_document.html")
     html_content = template.render(**context)
-    
+
     css_path = Path(__file__).parent.parent / "static" / "styles" / "document.css"
-    
+
     try:
         from weasyprint import HTML, CSS
     except ImportError as e:
@@ -270,24 +276,28 @@ def generate_rfp_pdf(
             "For Docker: Install GTK libraries. "
             "For local: Follow WeasyPrint installation guide."
         ) from e
-    
+
     html_doc = HTML(string=html_content, base_url=str(project_root))
     css_doc = CSS(filename=str(css_path))
-    
+
     if output_path:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         logger.info("Generating PDF and saving to: %s", output_path.absolute())
         html_doc.write_pdf(output_path, stylesheets=[css_doc])
-        
+
         if output_path.exists():
             file_size = output_path.stat().st_size
-            logger.info("PDF successfully written to: %s (%d bytes)", output_path.absolute(), file_size)
+            logger.info(
+                "PDF successfully written to: %s (%d bytes)",
+                output_path.absolute(),
+                file_size,
+            )
         else:
             logger.error("PDF file was not created at: %s", output_path.absolute())
             raise FileNotFoundError(f"PDF file was not created at {output_path}")
-        
+
         return output_path.read_bytes()
     else:
         pdf_bytes = html_doc.write_pdf(stylesheets=[css_doc])

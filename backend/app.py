@@ -53,8 +53,10 @@ from backend.memory.mem0_client import (
 )
 
 
-#function to setup rag system and load the fusionAIx knowledge base
-def _setup_rag_and_kb(use_rag: bool) -> tuple[Optional[RAGSystem], FusionAIxKnowledgeBase]:
+# function to setup rag system and load the fusionAIx knowledge base
+def _setup_rag_and_kb(
+    use_rag: bool,
+) -> tuple[Optional[RAGSystem], FusionAIxKnowledgeBase]:
     rag_system = None
     if use_rag:
         try:
@@ -63,7 +65,7 @@ def _setup_rag_and_kb(use_rag: bool) -> tuple[Optional[RAGSystem], FusionAIxKnow
             index_path = project_root / "rag_index"
             query_cache_path = project_root / "rag_query_cache.pkl"
             rag_system = RAGSystem(
-                docs_folder=str(docs_folder), 
+                docs_folder=str(docs_folder),
                 index_path=str(index_path),
                 query_cache_path=str(query_cache_path),
             )
@@ -83,13 +85,15 @@ def _setup_rag_and_kb(use_rag: bool) -> tuple[Optional[RAGSystem], FusionAIxKnow
                     "Failed to build RAG index: %s. RAG system not available. "
                     "Make sure you have documents (PDF, DOCX, TXT) in the 'docs' folder. "
                     "Continuing without RAG.",
-                    str(build_err)
+                    str(build_err),
                 )
                 rag_system = None
         except Exception as rag_exc:
-            logger.warning("Failed to load/build RAG system: %s. Continuing without RAG.", rag_exc)
+            logger.warning(
+                "Failed to load/build RAG system: %s. Continuing without RAG.", rag_exc
+            )
             rag_system = None
-    
+
     knowledge_base = get_fusionaix_kb()
     logger.info(
         "Using fusionAIx knowledge base: %d capabilities, %d case studies, %d accelerators",
@@ -100,7 +104,7 @@ def _setup_rag_and_kb(use_rag: bool) -> tuple[Optional[RAGSystem], FusionAIxKnow
     return rag_system, knowledge_base
 
 
-#function to enrich a build query with compact RAG index previews
+# function to enrich a build query with compact RAG index previews
 def _enrich_build_query_with_rag(
     build_query: BuildQuery,
     requirements_result: RequirementsResult,
@@ -123,7 +127,9 @@ def _enrich_build_query_with_rag(
     rag_section_lines: List[str] = []
     rag_section_lines.append("")
     rag_section_lines.append("=" * 80)
-    rag_section_lines.append("RAG-SUPPORTED REQUIREMENTS (compact index only – full evidence kept outside build_query)")
+    rag_section_lines.append(
+        "RAG-SUPPORTED REQUIREMENTS (compact index only – full evidence kept outside build_query)"
+    )
     rag_section_lines.append("=" * 80)
     rag_section_lines.append("")
 
@@ -146,22 +152,25 @@ def _enrich_build_query_with_rag(
     return build_query
 
 
-#function to validate extraction and requirements before generating responses
+# function to validate extraction and requirements before generating responses
 def validate_before_generation(
     extraction_result: ExtractionResult,
     requirements_result: RequirementsResult,
 ) -> List[str]:
     errors = []
-    
+
     if not extraction_result.language:
         errors.append("Extraction result missing language")
-    if not isinstance(extraction_result.language, str) or len(extraction_result.language) < 2:
+    if (
+        not isinstance(extraction_result.language, str)
+        or len(extraction_result.language) < 2
+    ):
         errors.append(f"Invalid language code: {extraction_result.language}")
-    
+
     if not requirements_result.solution_requirements:
         errors.append("No solution requirements found")
         return errors
-    
+
     for idx, req in enumerate(requirements_result.solution_requirements, 1):
         if not req.id or not req.id.strip():
             errors.append(f"Solution requirement {idx} missing ID")
@@ -170,17 +179,25 @@ def validate_before_generation(
         if not req.category or not req.category.strip():
             errors.append(f"Solution requirement {idx} ({req.id}) missing category")
         if req.source_text and len(req.source_text) < 10:
-            errors.append(f"Solution requirement {idx} ({req.id}) source_text too short (likely incomplete)")
-    
+            errors.append(
+                f"Solution requirement {idx} ({req.id}) source_text too short (likely incomplete)"
+            )
+
     if not requirements_result.response_structure_requirements:
-        logger.warning("No response structure requirements found - responses may lack structure guidance")
+        logger.warning(
+            "No response structure requirements found - responses may lack structure guidance"
+        )
     else:
-        for idx, req in enumerate(requirements_result.response_structure_requirements, 1):
+        for idx, req in enumerate(
+            requirements_result.response_structure_requirements, 1
+        ):
             if not req.id or not req.id.strip():
                 errors.append(f"Response structure requirement {idx} missing ID")
             if not req.source_text or not req.source_text.strip():
-                errors.append(f"Response structure requirement {idx} ({req.id}) missing source_text")
-    
+                errors.append(
+                    f"Response structure requirement {idx} ({req.id}) missing source_text"
+                )
+
     if requirements_result.solution_requirements:
         try:
             test_build_query = build_query_for_single_requirement(
@@ -188,23 +205,34 @@ def validate_before_generation(
                 single_requirement=requirements_result.solution_requirements[0],
                 all_response_structure_requirements=requirements_result.response_structure_requirements,
             )
-            if not test_build_query.query_text or len(test_build_query.query_text) < 100:
-                errors.append("Build query test failed - generated query text too short")
+            if (
+                not test_build_query.query_text
+                or len(test_build_query.query_text) < 100
+            ):
+                errors.append(
+                    "Build query test failed - generated query text too short"
+                )
             if not test_build_query.solution_requirements_summary:
-                errors.append("Build query test failed - missing solution requirements summary")
+                errors.append(
+                    "Build query test failed - missing solution requirements summary"
+                )
         except Exception as e:
             errors.append(f"Build query test failed: {str(e)}")
-    
+
     solution_ids = [req.id for req in requirements_result.solution_requirements]
     if len(solution_ids) != len(set(solution_ids)):
         duplicates = [id for id in solution_ids if solution_ids.count(id) > 1]
         errors.append(f"Duplicate solution requirement IDs found: {set(duplicates)}")
-    
-    response_ids = [req.id for req in requirements_result.response_structure_requirements]
+
+    response_ids = [
+        req.id for req in requirements_result.response_structure_requirements
+    ]
     if len(response_ids) != len(set(response_ids)):
         duplicates = [id for id in response_ids if response_ids.count(id) > 1]
-        errors.append(f"Duplicate response structure requirement IDs found: {set(duplicates)}")
-    
+        errors.append(
+            f"Duplicate response structure requirement IDs found: {set(duplicates)}"
+        )
+
     return errors
 
 
@@ -230,17 +258,28 @@ frontend_src = project_root / "frontend" / "src"
 
 if frontend_dist.exists() and (frontend_dist / "index.html").exists():
     if (frontend_dist / "assets").exists():
-        app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
+        app.mount(
+            "/assets",
+            StaticFiles(directory=str(frontend_dist / "assets")),
+            name="assets",
+        )
     logger.info("Serving frontend from dist directory (production build)")
 elif frontend_src.exists():
     app.mount("/src", StaticFiles(directory=str(frontend_src)), name="src")
     if (frontend_src.parent / "public").exists():
-        app.mount("/public", StaticFiles(directory=str(frontend_src.parent / "public")), name="public")
-    logger.info("Serving frontend from src directory (development mode - build frontend for production)")
+        app.mount(
+            "/public",
+            StaticFiles(directory=str(frontend_src.parent / "public")),
+            name="public",
+        )
+    logger.info(
+        "Serving frontend from src directory (development mode - build frontend for production)"
+    )
 
 _fusionaix_kb: FusionAIxKnowledgeBase | None = None
 
-#function to return a cached fusionAIx knowledge base instance
+
+# function to return a cached fusionAIx knowledge base instance
 def get_fusionaix_kb() -> FusionAIxKnowledgeBase:
     global _fusionaix_kb
     if _fusionaix_kb is None:
@@ -255,7 +294,7 @@ def get_fusionaix_kb() -> FusionAIxKnowledgeBase:
     return _fusionaix_kb
 
 
-#function to serve the frontend index.html at root
+# function to serve the frontend index.html at root
 @app.get("/", response_class=HTMLResponse)
 async def index() -> HTMLResponse:
     project_root = Path(__file__).resolve().parent.parent
@@ -263,14 +302,17 @@ async def index() -> HTMLResponse:
     if not index_path.exists():
         index_path = project_root / "frontend" / "index.html"
     if not index_path.exists():
-        raise HTTPException(status_code=404, detail="Frontend not found. Please build the frontend first: npm run build")
+        raise HTTPException(
+            status_code=404,
+            detail="Frontend not found. Please build the frontend first: npm run build",
+        )
     return HTMLResponse(index_path.read_text(encoding="utf-8"))
 
 
 SUPPORTED_FILE_TYPES = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt"}
 
 
-#function to process uploaded RFP files and extract combined text
+# function to process uploaded RFP files and extract combined text
 @app.post("/process-rfp")
 async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
     request_id = str(uuid.uuid4())
@@ -283,7 +325,12 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
     for file in files:
         suffix = Path(file.filename).suffix.lower()
         if suffix not in SUPPORTED_FILE_TYPES:
-            logger.warning("REQUEST %s: unsupported file type %s in file %s", request_id, suffix, file.filename)
+            logger.warning(
+                "REQUEST %s: unsupported file type %s in file %s",
+                request_id,
+                suffix,
+                file.filename,
+            )
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -311,30 +358,49 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
                     bytes_written += len(chunk)
             logger.info(
                 "REQUEST %s: uploaded file %d/%d: %s (%d bytes)",
-                request_id, file_index, len(files), file.filename, bytes_written,
+                request_id,
+                file_index,
+                len(files),
+                file.filename,
+                bytes_written,
             )
         except Exception as e:
-            logger.exception("REQUEST %s: failed to write file to disk: %s", request_id, e)
+            logger.exception(
+                "REQUEST %s: failed to write file to disk: %s", request_id, e
+            )
             for tp in temp_paths:
                 try:
                     tp.unlink(missing_ok=True)
                 except Exception:
                     pass
-            raise HTTPException(status_code=500, detail="Failed to process uploaded file.") from e
+            raise HTTPException(
+                status_code=500, detail="Failed to process uploaded file."
+            ) from e
 
         try:
             file_text = extract_text_from_file(temp_path)
             logger.info(
                 "REQUEST %s: extracted %d chars from file %d/%d (%s)",
-                request_id, len(file_text), file_index, len(files), file.filename,
+                request_id,
+                len(file_text),
+                file_index,
+                len(files),
+                file.filename,
             )
             if file_text.strip():
                 if len(files) > 1:
-                    all_text_parts.append(f"\n{'='*60}\nFILE: {file.filename}\n{'='*60}\n\n{file_text}")
+                    all_text_parts.append(
+                        f"\n{'='*60}\nFILE: {file.filename}\n{'='*60}\n\n{file_text}"
+                    )
                 else:
                     all_text_parts.append(file_text)
         except Exception as e:
-            logger.exception("REQUEST %s: failed to extract text from %s: %s", request_id, file.filename, e)
+            logger.exception(
+                "REQUEST %s: failed to extract text from %s: %s",
+                request_id,
+                file.filename,
+                e,
+            )
 
     for temp_path in temp_paths:
         try:
@@ -343,15 +409,23 @@ async def process_rfp(files: List[UploadFile] = File(...)) -> Dict[str, Any]:
             pass
 
     text = "\n\n".join(all_text_parts)
-    logger.info("REQUEST %s: combined text from %d file(s): %d chars", request_id, len(files), len(text))
+    logger.info(
+        "REQUEST %s: combined text from %d file(s): %d chars",
+        request_id,
+        len(files),
+        len(text),
+    )
 
     if not text.strip():
         logger.warning("REQUEST %s: no text extracted from files", request_id)
-        raise HTTPException(status_code=400, detail="No text could be extracted from the uploaded files.")
+        raise HTTPException(
+            status_code=400,
+            detail="No text could be extracted from the uploaded files.",
+        )
 
     elapsed = time.time() - t0
     logger.info("REQUEST %s: OCR extraction completed in %.2fs", request_id, elapsed)
-    
+
     response: Dict[str, Any] = {
         "preprocess": None,
         "requirements": None,
@@ -366,18 +440,22 @@ class PreprocessRequest(BaseModel):
 
 class RenderRequest(BaseModel):
     diagram: str
-    format: str = 'png'
+    format: str = "png"
 
 
-#function to run the preprocess agent on OCR text
+# function to run the preprocess agent on OCR text
 @app.post("/run-preprocess")
 async def run_preprocess(req: PreprocessRequest) -> Dict[str, Any]:
     request_id = str(uuid.uuid4())
-    logger.info("REQUEST %s: /run-preprocess called with %d chars", request_id, len(req.ocr_text))
-    
+    logger.info(
+        "REQUEST %s: /run-preprocess called with %d chars",
+        request_id,
+        len(req.ocr_text),
+    )
+
     if not req.ocr_text.strip():
         raise HTTPException(status_code=400, detail="OCR text is empty.")
-    
+
     t0 = time.time()
     try:
         preprocess_res = run_preprocess_agent(req.ocr_text)
@@ -393,7 +471,7 @@ async def run_preprocess(req: PreprocessRequest) -> Dict[str, Any]:
             status_code=500,
             detail=f"Preprocess agent failed for request {request_id}. Check server logs.",
         ) from exc
-    
+
     elapsed = time.time() - t0
     logger.info(
         "REQUEST %s: preprocess agent finished (cleaned_chars=%d, removed_chars=%d, comparison_agreement=%s)",
@@ -403,7 +481,7 @@ async def run_preprocess(req: PreprocessRequest) -> Dict[str, Any]:
         preprocess_res.comparison_agreement,
     )
     logger.info("REQUEST %s: preprocess completed in %.2fs", request_id, elapsed)
-    
+
     response: Dict[str, Any] = preprocess_res.to_dict()
     response["ocr_text"] = req.ocr_text
 
@@ -415,55 +493,71 @@ async def run_preprocess(req: PreprocessRequest) -> Dict[str, Any]:
     return response
 
 
-#function to render mermaid diagrams via MCP
-@app.post('/render/mermaid')
+# function to render mermaid diagrams via MCP
+@app.post("/render/mermaid")
 async def render_mermaid(req: RenderRequest):
     diagram = (req.diagram or "").strip()
-    fmt = (req.format or 'png').lower()
+    fmt = (req.format or "png").lower()
     if not diagram:
-        raise HTTPException(status_code=400, detail='No diagram provided')
-    if fmt != 'png':
-        raise HTTPException(status_code=400, detail='Only PNG format is supported via MCP')
+        raise HTTPException(status_code=400, detail="No diagram provided")
+    if fmt != "png":
+        raise HTTPException(
+            status_code=400, detail="Only PNG format is supported via MCP"
+        )
 
     try:
-        logger.info('Received raw diagram (escaped newlines): %s', diagram.replace('\n','\\n')[:1000])
+        logger.info(
+            "Received raw diagram (escaped newlines): %s",
+            diagram.replace("\n", "\\n")[:1000],
+        )
     except Exception:
-        logger.debug('Failed to log raw diagram')
+        logger.debug("Failed to log raw diagram")
 
     caption = None
-    m = re.search(r'^(?P<diag>.*?)(?:\n+Caption:\s*(?P<cap>.*))?$', diagram, flags=re.I | re.S)
+    m = re.search(
+        r"^(?P<diag>.*?)(?:\n+Caption:\s*(?P<cap>.*))?$", diagram, flags=re.I | re.S
+    )
     if m:
-        diagram_text = (m.group('diag') or '').rstrip()
-        caption = (m.group('cap') or '').strip() or None
+        diagram_text = (m.group("diag") or "").rstrip()
+        caption = (m.group("cap") or "").strip() or None
         if caption:
-            logger.info('Detected and stripped caption from diagram for rendering: %s', caption)
+            logger.info(
+                "Detected and stripped caption from diagram for rendering: %s", caption
+            )
     else:
         diagram_text = diagram
     try:
-        preview = diagram_text.replace('\n', '\\n')[:1000]
-        logger.info('Diagram text preview (escaped newlines): %s', preview)
-        logger.info('Diagram text line count: %d', len(diagram_text.splitlines()))
+        preview = diagram_text.replace("\n", "\\n")[:1000]
+        logger.info("Diagram text preview (escaped newlines): %s", preview)
+        logger.info("Diagram text line count: %d", len(diagram_text.splitlines()))
     except Exception:
-        logger.debug('Failed to produce diagram preview for logs')
-    
+        logger.debug("Failed to produce diagram preview for logs")
+
     from backend.mermaid.mcp_renderer import render_mermaid_to_png
 
     try:
-        logger.info('Requesting MCP Mermaid rendering (PNG)')
+        logger.info("Requesting MCP Mermaid rendering (PNG)")
         png_bytes = await render_mermaid_to_png(diagram_text)
         if not png_bytes:
-            raise HTTPException(status_code=500, detail='MCP Mermaid rendering returned no image')
+            raise HTTPException(
+                status_code=500, detail="MCP Mermaid rendering returned no image"
+            )
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception('MCP Mermaid rendering failed: %s', e)
-        raise HTTPException(status_code=500, detail=f'Failed to render Mermaid diagram: {str(e)}')
+        logger.exception("MCP Mermaid rendering failed: %s", e)
+        raise HTTPException(
+            status_code=500, detail=f"Failed to render Mermaid diagram: {str(e)}"
+        )
 
-    logger.info('MCP Mermaid rendering succeeded; returning PNG bytes (%d bytes)', len(png_bytes))
+    logger.info(
+        "MCP Mermaid rendering succeeded; returning PNG bytes (%d bytes)",
+        len(png_bytes),
+    )
     headers = {"X-Diagram-Renderer": "mcp-mermaid"}
     if caption:
         headers["X-Diagram-Caption"] = caption
-    return Response(content=png_bytes, media_type='image/png', headers=headers)
+    return Response(content=png_bytes, media_type="image/png", headers=headers)
 
 
 class RequirementsRequest(BaseModel):
@@ -473,7 +567,8 @@ class RequirementsRequest(BaseModel):
 class UpdateRequirementsRequest(BaseModel):
     requirements: Dict[str, Any]
 
-#function to run requirements agent and detect structure of responses
+
+# function to run requirements agent and detect structure of responses
 @app.post("/run-requirements")
 async def run_requirements(req: RequirementsRequest) -> Dict[str, Any]:
     logger.info(
@@ -481,13 +576,17 @@ async def run_requirements(req: RequirementsRequest) -> Dict[str, Any]:
     )
     try:
         result = run_requirements_agent(essential_text=req.essential_text)
-        
-        logger.info("Running structure detection on %d response structure requirements", 
-                   len(result.response_structure_requirements))
-        structure_detection_dict = detect_structure(result.response_structure_requirements)
+
+        logger.info(
+            "Running structure detection on %d response structure requirements",
+            len(result.response_structure_requirements),
+        )
+        structure_detection_dict = detect_structure(
+            result.response_structure_requirements
+        )
         structure_detection = StructureDetectionResult(**structure_detection_dict)
         result.structure_detection = structure_detection
-        
+
         logger.info(
             "Structure detection completed: explicit=%s, type=%s, sections=%d, confidence=%.2f",
             structure_detection.has_explicit_structure,
@@ -515,7 +614,7 @@ async def run_requirements(req: RequirementsRequest) -> Dict[str, Any]:
     return result.to_dict()
 
 
-#function to update and validate requirements payload
+# function to update and validate requirements payload
 @app.post("/update-requirements")
 async def update_requirements(req: UpdateRequirementsRequest) -> Dict[str, Any]:
     logger.info("Update requirements endpoint called")
@@ -529,32 +628,35 @@ async def update_requirements(req: UpdateRequirementsRequest) -> Dict[str, Any]:
             detail=f"Invalid requirements payload: {str(exc)}",
         ) from exc
 
+
 class BuildQueryRequest(BaseModel):
     preprocess: Dict[str, Any]
     requirements: Dict[str, Any]
 
 
-#function to extract a short title from key requirements summary
-def _extract_title_from_key_requirements(key_requirements_summary: str) -> Optional[str]:
+# function to extract a short title from key requirements summary
+def _extract_title_from_key_requirements(
+    key_requirements_summary: str,
+) -> Optional[str]:
     if not key_requirements_summary:
         return None
-    
-    lines = key_requirements_summary.strip().split('\n')
+
+    lines = key_requirements_summary.strip().split("\n")
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        for marker in ['-', '•', '*', '·']:
+        for marker in ["-", "•", "*", "·"]:
             if line.startswith(marker):
                 title = line[1:].strip()
                 if title:
                     return title
         return line
-    
+
     return None
 
 
-#function to convert a PreprocessResult into an ExtractionResult
+# function to convert a PreprocessResult into an ExtractionResult
 def _extraction_from_preprocess(pre: PreprocessResult) -> ExtractionResult:
     return ExtractionResult(
         translated_text="",
@@ -564,7 +666,7 @@ def _extraction_from_preprocess(pre: PreprocessResult) -> ExtractionResult:
     )
 
 
-#function to build combined text response from individual responses (for logging)
+# function to build combined text response from individual responses (for logging)
 def _build_combined_response_text(
     individual_responses: List[Dict[str, Any]],
     requirements_result: RequirementsResult,
@@ -574,7 +676,7 @@ def _build_combined_response_text(
     combined_parts.append("RFP RESPONSE DOCUMENT")
     combined_parts.append("=" * 80)
     combined_parts.append("")
-    
+
     if requirements_result.response_structure_requirements:
         combined_parts.append("RESPONSE STRUCTURE REQUIREMENTS")
         combined_parts.append("-" * 80)
@@ -582,11 +684,11 @@ def _build_combined_response_text(
             combined_parts.append(resp_req.source_text)
             combined_parts.append("")
         combined_parts.append("")
-    
+
     combined_parts.append("SOLUTION REQUIREMENT RESPONSES")
     combined_parts.append("=" * 80)
     combined_parts.append("")
-    
+
     for idx, resp_data in enumerate(individual_responses, 1):
         combined_parts.append(f"Requirement {idx}: {resp_data['requirement_id']}")
         combined_parts.append("-" * 80)
@@ -594,20 +696,20 @@ def _build_combined_response_text(
         combined_parts.append("")
         combined_parts.append("Response:")
         combined_parts.append("-" * 40)
-        combined_parts.append(resp_data['response'])
+        combined_parts.append(resp_data["response"])
         combined_parts.append("")
         combined_parts.append("")
-    
+
     return "\n".join(combined_parts)
 
 
-#function to extract key phrase from requirement text
+# function to extract key phrase from requirement text
 def _extract_key_phrase(source_text: str, max_words: int = 10) -> str:
     words = source_text.split()
     return " ".join(words[:max_words]) + ("..." if len(words) > max_words else "")
 
 
-#function to create an error response dict for a failed requirement
+# function to create an error response dict for a failed requirement
 def _create_error_response(
     requirement_id: str,
     requirement_text: str,
@@ -630,7 +732,7 @@ def _create_error_response(
     }
 
 
-#function to log progress for requirement processing
+# function to log progress for requirement processing
 def _log_requirement_progress(
     idx: int,
     total: int,
@@ -648,7 +750,7 @@ def _log_requirement_progress(
     )
 
 
-#function to log final generation summary
+# function to log final generation summary
 def _log_generation_summary(
     total_requirements: int,
     successful_responses: int,
@@ -663,7 +765,11 @@ def _log_generation_summary(
     logger.info("  Failed responses: %d", failed_responses)
     logger.info(
         "  Success rate: %.1f%%",
-        (successful_responses / total_requirements * 100) if total_requirements > 0 else 0.0,
+        (
+            (successful_responses / total_requirements * 100)
+            if total_requirements > 0
+            else 0.0
+        ),
     )
     logger.info("  Total time: %.2f seconds", total_elapsed)
     logger.info(
@@ -674,7 +780,7 @@ def _log_generation_summary(
     logger.info("=" * 80)
 
 
-#function to process a single requirement and generate response
+# function to process a single requirement and generate response
 def _process_single_requirement(
     solution_req: Any,
     idx: int,
@@ -686,7 +792,7 @@ def _process_single_requirement(
 ) -> Dict[str, Any]:
     req_start_time = time.time()
     key_phrase = _extract_key_phrase(solution_req.source_text)
-    
+
     logger.info(
         "[%d/%d] Processing requirement: %s",
         idx,
@@ -697,34 +803,36 @@ def _process_single_requirement(
         "[%d/%d] Requirement text: %s",
         idx,
         total_requirements,
-        solution_req.source_text[:100] + "..."
-        if len(solution_req.source_text) > 100
-        else solution_req.source_text,
+        (
+            solution_req.source_text[:100] + "..."
+            if len(solution_req.source_text) > 100
+            else solution_req.source_text
+        ),
     )
-    
+
     build_query_obj = build_query_for_single_requirement(
         extraction_result=extraction_result,
         single_requirement=solution_req,
         all_response_structure_requirements=requirements_result.response_structure_requirements,
     )
     build_query_obj.confirmed = True
-    
+
     if requirements_result.structure_detection:
         build_query_obj.extraction_data["structure_detection"] = {
             "has_explicit_structure": requirements_result.structure_detection.has_explicit_structure,
             "structure_type": requirements_result.structure_detection.structure_type,
         }
-    
+
     try:
         result = run_response_agent(
             build_query=build_query_obj,
             knowledge_base=knowledge_base,
             qa_context=qa_context,
         )
-        
+
         quality_assessment = assess_response_quality(solution_req, result.response_text)
         req_elapsed = time.time() - req_start_time
-        
+
         response_dict = {
             "requirement_id": solution_req.id,
             "requirement_text": solution_req.source_text,
@@ -733,7 +841,7 @@ def _process_single_requirement(
             "notes": result.notes,
             "quality": quality_assessment,
         }
-        
+
         logger.info(
             "[%d/%d] ✓ SUCCESS: Generated response for requirement %s (length=%d chars, time=%.2fs)",
             idx,
@@ -742,9 +850,9 @@ def _process_single_requirement(
             len(result.response_text),
             req_elapsed,
         )
-        
+
         return {"response": response_dict, "success": True, "elapsed": req_elapsed}
-        
+
     except Exception as req_exc:
         req_elapsed = time.time() - req_start_time
         logger.error(
@@ -761,18 +869,18 @@ def _process_single_requirement(
             total_requirements,
             solution_req.id,
         )
-        
+
         error_response = _create_error_response(
             requirement_id=solution_req.id,
             requirement_text=solution_req.source_text,
             key_phrase=key_phrase,
             error=req_exc,
         )
-        
+
         return {"response": error_response, "success": False, "elapsed": req_elapsed}
 
 
-#function to build a query from preprocess and requirements
+# function to build a query from preprocess and requirements
 @app.post("/build-query")
 async def build_query_endpoint(req: BuildQueryRequest) -> Dict[str, Any]:
     logger.info("Build query endpoint called")
@@ -805,7 +913,7 @@ class GenerateResponseRequest(BaseModel):
     session_id: Optional[str] = None
 
 
-#function to generate responses (structured or per-requirement) for requirements
+# function to generate responses (structured or per-requirement) for requirements
 @app.post("/generate-response")
 async def generate_response_endpoint(req: GenerateResponseRequest) -> Dict[str, Any]:
     logger.info("Generate response endpoint called (use_rag=%s)", req.use_rag)
@@ -813,24 +921,29 @@ async def generate_response_endpoint(req: GenerateResponseRequest) -> Dict[str, 
         preprocess_result = PreprocessResult(**req.preprocess)
         extraction_result = _extraction_from_preprocess(preprocess_result)
         requirements_result = RequirementsResult(**req.requirements)
-        
+
         if not requirements_result.solution_requirements:
             raise HTTPException(
                 status_code=400,
                 detail="No solution requirements found. Cannot generate response.",
             )
-        
+
         if requirements_result.structure_detection is None:
             logger.info("Structure detection not found in requirements, running now...")
-            structure_detection_dict = detect_structure(requirements_result.response_structure_requirements)
-            requirements_result.structure_detection = StructureDetectionResult(**structure_detection_dict)
-        
-        structure_detection = requirements_result.structure_detection
-        
-        if structure_detection.has_explicit_structure and structure_detection.confidence >= 0.6:
-            logger.info(
-                "=" * 80
+            structure_detection_dict = detect_structure(
+                requirements_result.response_structure_requirements
             )
+            requirements_result.structure_detection = StructureDetectionResult(
+                **structure_detection_dict
+            )
+
+        structure_detection = requirements_result.structure_detection
+
+        if (
+            structure_detection.has_explicit_structure
+            and structure_detection.confidence >= 0.6
+        ):
+            logger.info("=" * 80)
             logger.info(
                 "EXPLICIT STRUCTURE DETECTED - Using structured response generation"
             )
@@ -840,9 +953,7 @@ async def generate_response_endpoint(req: GenerateResponseRequest) -> Dict[str, 
                 len(structure_detection.detected_sections),
                 structure_detection.confidence,
             )
-            logger.info(
-                "=" * 80
-            )
+            logger.info("=" * 80)
             return await _generate_structured_response(
                 extraction_result=extraction_result,
                 requirements_result=requirements_result,
@@ -852,9 +963,7 @@ async def generate_response_endpoint(req: GenerateResponseRequest) -> Dict[str, 
                 session_id=req.session_id,
             )
         else:
-            logger.info(
-                "=" * 80
-            )
+            logger.info("=" * 80)
             logger.info(
                 "NO EXPLICIT STRUCTURE - Using per-requirement response generation"
             )
@@ -863,9 +972,7 @@ async def generate_response_endpoint(req: GenerateResponseRequest) -> Dict[str, 
                 structure_detection.structure_type if structure_detection else "none",
                 structure_detection.confidence if structure_detection else 0.0,
             )
-            logger.info(
-                "=" * 80
-            )
+            logger.info("=" * 80)
             return await _generate_per_requirement_response(
                 extraction_result=extraction_result,
                 requirements_result=requirements_result,
@@ -885,7 +992,7 @@ async def generate_response_endpoint(req: GenerateResponseRequest) -> Dict[str, 
         ) from exc
 
 
-#function to generate a single structured response and return a DOCX
+# function to generate a single structured response and return a DOCX
 async def _generate_structured_response(
     extraction_result: ExtractionResult,
     requirements_result: RequirementsResult,
@@ -895,15 +1002,20 @@ async def _generate_structured_response(
     session_id: Optional[str] = None,
 ) -> Response:
     rag_system, knowledge_base = _setup_rag_and_kb(use_rag)
-    
+
     logger.info("=" * 80)
-    logger.info("Running pre-flight validation before structured response generation...")
+    logger.info(
+        "Running pre-flight validation before structured response generation..."
+    )
     validation_errors = validate_before_generation(
         extraction_result=extraction_result,
         requirements_result=requirements_result,
     )
     if validation_errors:
-        error_msg = "Pre-flight validation failed. Please fix the following issues:\n" + "\n".join(f"  - {err}" for err in validation_errors)
+        error_msg = (
+            "Pre-flight validation failed. Please fix the following issues:\n"
+            + "\n".join(f"  - {err}" for err in validation_errors)
+        )
         logger.error(error_msg)
         raise HTTPException(
             status_code=400,
@@ -911,17 +1023,21 @@ async def _generate_structured_response(
         )
     logger.info("✓ Pre-flight validation passed - all checks OK")
     logger.info("=" * 80)
-    
+
     logger.info("Generating structured response...")
     start_time = time.time()
-    
+
     try:
         qa_context = ""
         if session_id and session_id in _conversation_sessions:
             context = _conversation_sessions[session_id]
             qa_context = context.get_qa_context()
-            logger.info("Including Q&A context from session %s (%d answers)", session_id, len(context.answers))
-        
+            logger.info(
+                "Including Q&A context from session %s (%d answers)",
+                session_id,
+                len(context.answers),
+            )
+
         result = run_structured_response_agent(
             requirements_result=requirements_result,
             structure_detection=structure_detection,
@@ -930,18 +1046,28 @@ async def _generate_structured_response(
             knowledge_base=knowledge_base,
             qa_context=qa_context,
         )
-        
-        individual_responses = [{
-            "requirement_id": "STRUCTURED",
-            "requirement_text": f"Complete structured response following: {', '.join(structure_detection.detected_sections)}",
-            "key_phrase": structure_detection.detected_sections[0] if structure_detection.detected_sections else "Structured Response",
-            "response": result.response_text,
-            "notes": result.notes,
-        }]
-        
+
+        individual_responses = [
+            {
+                "requirement_id": "STRUCTURED",
+                "requirement_text": f"Complete structured response following: {', '.join(structure_detection.detected_sections)}",
+                "key_phrase": (
+                    structure_detection.detected_sections[0]
+                    if structure_detection.detected_sections
+                    else "Structured Response"
+                ),
+                "response": result.response_text,
+                "notes": result.notes,
+            }
+        ]
+
         total_elapsed = time.time() - start_time
-        logger.info("Structured response generated in %.2f seconds (length=%d chars)", total_elapsed, len(result.response_text))
-        
+        logger.info(
+            "Structured response generated in %.2f seconds (length=%d chars)",
+            total_elapsed,
+            len(result.response_text),
+        )
+
         try:
             from backend.document_formatter import generate_rfp_docx
         except ImportError as import_err:
@@ -950,10 +1076,12 @@ async def _generate_structured_response(
                 status_code=500,
                 detail="DOCX generation not available. Install python-docx to enable Word export.",
             ) from import_err
-        
-        rfp_title = _extract_title_from_key_requirements(extraction_result.key_requirements_summary)
-        
-        #generate DOCX in memory without saving to disk
+
+        rfp_title = _extract_title_from_key_requirements(
+            extraction_result.key_requirements_summary
+        )
+
+        # generate DOCX in memory without saving to disk
         docx_bytes = generate_rfp_docx(
             individual_responses=individual_responses,
             requirements_result=requirements_result,
@@ -961,19 +1089,24 @@ async def _generate_structured_response(
             rfp_title=rfp_title,
             output_path=None,
         )
-        
-        logger.info("DOCX generated successfully: %d bytes (in memory, not saved)", len(docx_bytes))
-        
+
+        logger.info(
+            "DOCX generated successfully: %d bytes (in memory, not saved)",
+            len(docx_bytes),
+        )
+
         timestamp = int(time.time())
-        docx_filename = f"rfp_response_structured_{extraction_result.language}_{timestamp}.docx"
-        
+        docx_filename = (
+            f"rfp_response_structured_{extraction_result.language}_{timestamp}.docx"
+        )
+
         return Response(
             content=docx_bytes,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
                 "Content-Disposition": f'inline; filename="{docx_filename}"',
                 "Content-Length": str(len(docx_bytes)),
-            }
+            },
         )
     except Exception as exc:
         logger.exception("Structured response generation failed: %s", exc)
@@ -983,7 +1116,7 @@ async def _generate_structured_response(
         ) from exc
 
 
-#function to assemble individual responses into a DOCX response file
+# function to assemble individual responses into a DOCX response file
 def _generate_docx_response(
     individual_responses: List[Dict[str, Any]],
     extraction_result: ExtractionResult,
@@ -992,14 +1125,20 @@ def _generate_docx_response(
     try:
         from backend.document_formatter import generate_rfp_docx
     except ImportError as import_err:
-        raise ImportError("DOCX generation not available. Install python-docx.") from import_err
-    
-    rfp_title = _extract_title_from_key_requirements(extraction_result.key_requirements_summary)
-    
-    logger.info("Generating DOCX with %d individual responses", len(individual_responses))
+        raise ImportError(
+            "DOCX generation not available. Install python-docx."
+        ) from import_err
+
+    rfp_title = _extract_title_from_key_requirements(
+        extraction_result.key_requirements_summary
+    )
+
+    logger.info(
+        "Generating DOCX with %d individual responses", len(individual_responses)
+    )
     docx_start_time = time.time()
-    
-    #generate DOCX in memory without saving to disk
+
+    # generate DOCX in memory without saving to disk
     docx_bytes = generate_rfp_docx(
         individual_responses=individual_responses,
         requirements_result=requirements_result,
@@ -1007,28 +1146,28 @@ def _generate_docx_response(
         rfp_title=rfp_title,
         output_path=None,
     )
-    
+
     docx_elapsed = time.time() - docx_start_time
     timestamp = int(time.time())
     docx_filename = f"rfp_response_{extraction_result.language}_{timestamp}.docx"
-    
+
     logger.info(
         "DOCX generation completed successfully: %d bytes in %.2f seconds (in memory, not saved)",
         len(docx_bytes),
         docx_elapsed,
     )
-    
+
     return Response(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={
             "Content-Disposition": f'inline; filename="{docx_filename}"',
             "Content-Length": str(len(docx_bytes)),
-        }
+        },
     )
 
 
-#function to generate responses per solution requirement and return DOCX
+# function to generate responses per solution requirement and return DOCX
 async def _generate_per_requirement_response(
     extraction_result: ExtractionResult,
     requirements_result: RequirementsResult,
@@ -1037,13 +1176,17 @@ async def _generate_per_requirement_response(
     session_id: Optional[str] = None,
 ) -> Response:
     rag_system, knowledge_base = _setup_rag_and_kb(use_rag)
-    
+
     qa_context = ""
     if session_id and session_id in _conversation_sessions:
         context = _conversation_sessions[session_id]
         qa_context = context.get_qa_context()
-        logger.info("Including Q&A context from session %s (%d answers)", session_id, len(context.answers))
-    
+        logger.info(
+            "Including Q&A context from session %s (%d answers)",
+            session_id,
+            len(context.answers),
+        )
+
     logger.info("=" * 80)
     logger.info("Running pre-flight validation before response generation...")
     validation_errors = validate_before_generation(
@@ -1051,7 +1194,10 @@ async def _generate_per_requirement_response(
         requirements_result=requirements_result,
     )
     if validation_errors:
-        error_msg = "Pre-flight validation failed. Please fix the following issues:\n" + "\n".join(f"  - {err}" for err in validation_errors)
+        error_msg = (
+            "Pre-flight validation failed. Please fix the following issues:\n"
+            + "\n".join(f"  - {err}" for err in validation_errors)
+        )
         logger.error(error_msg)
         raise HTTPException(
             status_code=400,
@@ -1059,20 +1205,25 @@ async def _generate_per_requirement_response(
         )
     logger.info("✓ Pre-flight validation passed - all checks OK")
     logger.info("=" * 80)
-    
+
     total_requirements = len(requirements_result.solution_requirements)
     logger.info("=" * 80)
-    logger.info("Starting response generation for %d solution requirement(s)", total_requirements)
+    logger.info(
+        "Starting response generation for %d solution requirement(s)",
+        total_requirements,
+    )
     logger.info("=" * 80)
-    
+
     individual_responses = []
     successful_responses = 0
     failed_responses = 0
     start_time = time.time()
     partial_completion = False
-    
+
     try:
-        for idx, solution_req in enumerate(requirements_result.solution_requirements, 1):
+        for idx, solution_req in enumerate(
+            requirements_result.solution_requirements, 1
+        ):
             result = _process_single_requirement(
                 solution_req=solution_req,
                 idx=idx,
@@ -1082,14 +1233,14 @@ async def _generate_per_requirement_response(
                 knowledge_base=knowledge_base,
                 qa_context=qa_context,
             )
-            
+
             individual_responses.append(result["response"])
-            
+
             if result["success"]:
                 successful_responses += 1
             else:
                 failed_responses += 1
-            
+
             _log_requirement_progress(
                 idx=idx,
                 total=total_requirements,
@@ -1097,13 +1248,15 @@ async def _generate_per_requirement_response(
                 failed=failed_responses,
                 requirement_id=solution_req.id,
             )
-            
+
     except KeyboardInterrupt:
         logger.warning("Response generation interrupted by user")
         partial_completion = True
         raise
     except Exception as catastrophic_error:
-        logger.error("Catastrophic error during response generation: %s", catastrophic_error)
+        logger.error(
+            "Catastrophic error during response generation: %s", catastrophic_error
+        )
         logger.exception("Full traceback:")
         partial_completion = True
         if not individual_responses:
@@ -1111,22 +1264,24 @@ async def _generate_per_requirement_response(
                 status_code=500,
                 detail="Response generation failed before any responses could be generated. Check server logs.",
             ) from catastrophic_error
-    
+
     if not individual_responses:
         raise HTTPException(
             status_code=500,
             detail="Response generation failed before any responses could be generated. Check server logs.",
         )
-    
+
     if partial_completion:
         logger.warning(
             "Response generation completed partially: %d/%d requirements processed",
             len(individual_responses),
             total_requirements,
         )
-    
+
     total_elapsed = time.time() - start_time
-    combined_response_text = _build_combined_response_text(individual_responses, requirements_result)
+    combined_response_text = _build_combined_response_text(
+        individual_responses, requirements_result
+    )
     _log_generation_summary(
         total_requirements=total_requirements,
         successful_responses=successful_responses,
@@ -1134,10 +1289,12 @@ async def _generate_per_requirement_response(
         total_elapsed=total_elapsed,
         combined_response_length=len(combined_response_text),
     )
-    
+
     logger.info("Generating DOCX document...")
     try:
-        return _generate_docx_response(individual_responses, extraction_result, requirements_result)
+        return _generate_docx_response(
+            individual_responses, extraction_result, requirements_result
+        )
     except ImportError as import_exc:
         logger.error("DOCX generation not available: %s", import_exc)
         raise HTTPException(
@@ -1155,7 +1312,8 @@ async def _generate_per_requirement_response(
 _conversation_sessions: Dict[str, ConversationContext] = {}
 _company_kb_instance: Optional[CompanyKnowledgeBase] = None
 
-#function to return a cached company knowledge base instance
+
+# function to return a cached company knowledge base instance
 def get_company_kb() -> CompanyKnowledgeBase:
     global _company_kb_instance
     if _company_kb_instance is None:
@@ -1174,18 +1332,18 @@ class EnrichBuildQueryRequest(BaseModel):
     session_id: Optional[str] = None
 
 
-#function to generate clarification questions from build_query or requirements
+# function to generate clarification questions from build_query or requirements
 @app.post("/generate-questions")
 async def generate_questions_endpoint(req: GenerateQuestionsRequest) -> Dict[str, Any]:
     logger.info("Generate questions endpoint called")
     try:
         company_kb = get_company_kb()
         rag_system, _ = _setup_rag_and_kb(use_rag=True)
-        
+
         if req.build_query:
             logger.info("Analyzing build query for questions")
             build_query_obj = BuildQuery(**req.build_query)
-            
+
             if req.requirements:
                 requirements_result = RequirementsResult(**req.requirements)
                 questions_list, rag_contexts_by_req = analyze_build_query_for_questions(
@@ -1201,13 +1359,15 @@ async def generate_questions_endpoint(req: GenerateQuestionsRequest) -> Dict[str
                     rag_contexts_by_req,
                 )
             else:
-                logger.warning("Requirements not provided with build query, analyzing build query as whole")
+                logger.warning(
+                    "Requirements not provided with build query, analyzing build query as whole"
+                )
                 questions_list = analyze_build_query_for_questions_legacy(
                     build_query_obj,
                     company_kb,
                     max_questions=20,
                 )
-            
+
             all_questions = []
             questions_by_req = {}
             for idx, q in enumerate(questions_list):
@@ -1221,32 +1381,34 @@ async def generate_questions_endpoint(req: GenerateQuestionsRequest) -> Dict[str
                     priority=q.get("priority", "medium"),
                 )
                 all_questions.append(question.model_dump())
-                
+
                 if req_id:
                     if req_id not in questions_by_req:
                         questions_by_req[req_id] = []
                     questions_by_req[req_id].append(q)
-            
+
             logger.info("Generated %d questions from build query", len(all_questions))
-            
+
             response_payload: Dict[str, Any] = {
                 "questions": all_questions,
                 "questions_by_requirement": questions_by_req,
             }
             if req.requirements:
-                response_payload["enriched_build_query"] = enriched_build_query.model_dump()
+                response_payload["enriched_build_query"] = (
+                    enriched_build_query.model_dump()
+                )
             return response_payload
         elif req.requirements:
             logger.info("Analyzing requirements for questions (legacy mode)")
             requirements_result = RequirementsResult(**req.requirements)
-            
+
             questions_dict = analyze_requirements_for_questions(
                 requirements_result.solution_requirements,
                 company_kb,
                 max_questions_per_requirement=1,
                 rag_system=rag_system,
             )
-            
+
             all_questions = []
             for req_id, questions in questions_dict.items():
                 for q in questions:
@@ -1259,14 +1421,17 @@ async def generate_questions_endpoint(req: GenerateQuestionsRequest) -> Dict[str
                         priority=q.get("priority", "medium"),
                     )
                     all_questions.append(question.model_dump())
-            
-            logger.info("Generated %d questions across %d requirements", len(all_questions), len(questions_dict))
-            
+
+            logger.info(
+                "Generated %d questions across %d requirements",
+                len(all_questions),
+                len(questions_dict),
+            )
+
             return {
                 "questions": all_questions,
                 "questions_by_requirement": {
-                    req_id: questions
-                    for req_id, questions in questions_dict.items()
+                    req_id: questions for req_id, questions in questions_dict.items()
                 },
             }
         else:
@@ -1281,21 +1446,22 @@ async def generate_questions_endpoint(req: GenerateQuestionsRequest) -> Dict[str
             detail="Generate questions failed. Check server logs.",
         ) from exc
 
+
 class GetNextQuestionRequest(BaseModel):
     requirements: Dict[str, Any]
     session_id: Optional[str] = None
 
 
-#function to return the next critical question for iterative Q&A
+# function to return the next critical question for iterative Q&A
 @app.post("/get-next-question")
 async def get_next_question_endpoint(req: GetNextQuestionRequest) -> Dict[str, Any]:
     logger.info("Get next question (session=%s)", req.session_id)
-    
+
     try:
         company_kb = get_company_kb()
         rag_system, _ = _setup_rag_and_kb(use_rag=True)
         requirements_result = RequirementsResult(**req.requirements)
-        
+
         previous_answers: List[Answer] = []
         rag_contexts_by_req: Dict[str, str] = {}
         if req.session_id and req.session_id in _conversation_sessions:
@@ -1307,7 +1473,7 @@ async def get_next_question_endpoint(req: GetNextQuestionRequest) -> Dict[str, A
                 len(previous_answers),
                 len(rag_contexts_by_req),
             )
-        
+
         question, remaining_gaps, updated_rag = get_next_critical_question(
             requirements_result=requirements_result,
             company_kb=company_kb,
@@ -1315,10 +1481,10 @@ async def get_next_question_endpoint(req: GetNextQuestionRequest) -> Dict[str, A
             previous_answers=previous_answers,
             rag_contexts_by_req=rag_contexts_by_req,
         )
-        
+
         if req.session_id and req.session_id in _conversation_sessions:
             _conversation_sessions[req.session_id].rag_contexts_by_req = updated_rag
-        
+
         if question is None:
             return {
                 "question": None,
@@ -1326,22 +1492,24 @@ async def get_next_question_endpoint(req: GetNextQuestionRequest) -> Dict[str, A
                 "remaining_gaps": 0,
                 "message": "All critical information is available. Ready to generate response.",
             }
-        
+
         req_id = question.get("requirement_id", "general")
         question_count = len(previous_answers)
         question["question_id"] = f"{req_id}-q-{question_count}"
         question["priority"] = "high"
-        
+
         return {
             "question": question,
             "has_more_questions": remaining_gaps > 0,
             "remaining_gaps": remaining_gaps,
             "message": f"Please answer this question (3-5 sentences). {remaining_gaps} more question(s) may follow.",
         }
-        
+
     except Exception as exc:
         logger.exception("Get next question failed: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to get next question.") from exc
+        raise HTTPException(
+            status_code=500, detail="Failed to get next question."
+        ) from exc
 
 
 class SubmitIterativeAnswerRequest(BaseModel):
@@ -1352,16 +1520,18 @@ class SubmitIterativeAnswerRequest(BaseModel):
     requirements: Dict[str, Any]
 
 
-#function to submit an iterative answer and return the next question
+# function to submit an iterative answer and return the next question
 @app.post("/submit-answer-get-next")
-async def submit_answer_and_get_next(req: SubmitIterativeAnswerRequest) -> Dict[str, Any]:
+async def submit_answer_and_get_next(
+    req: SubmitIterativeAnswerRequest,
+) -> Dict[str, Any]:
     logger.info("Submit answer for %s and get next", req.question_id)
-    
+
     if req.session_id not in _conversation_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     context = _conversation_sessions[req.session_id]
-    
+
     answer = Answer(
         question_id=req.question_id,
         question_text=req.question_text,
@@ -1369,24 +1539,28 @@ async def submit_answer_and_get_next(req: SubmitIterativeAnswerRequest) -> Dict[
         answered_at=datetime.now().isoformat(),
     )
     context.answers.append(answer)
-    logger.info("Saved answer for %s (total answers: %d)", req.question_id, len(context.answers))
-    
+    logger.info(
+        "Saved answer for %s (total answers: %d)", req.question_id, len(context.answers)
+    )
+
     try:
         company_kb = get_company_kb()
         rag_system, _ = _setup_rag_and_kb(use_rag=True)
         requirements_result = RequirementsResult(**req.requirements)
         rag_contexts_by_req = context.rag_contexts_by_req or {}
-        
-        needs_more, next_question, remaining, updated_rag = check_if_more_questions_needed(
-            requirements_result=requirements_result,
-            company_kb=company_kb,
-            rag_system=rag_system,
-            all_answers=context.answers,
-            rag_contexts_by_req=rag_contexts_by_req,
+
+        needs_more, next_question, remaining, updated_rag = (
+            check_if_more_questions_needed(
+                requirements_result=requirements_result,
+                company_kb=company_kb,
+                rag_system=rag_system,
+                all_answers=context.answers,
+                rag_contexts_by_req=rag_contexts_by_req,
+            )
         )
-        
+
         context.rag_contexts_by_req = updated_rag
-        
+
         if not needs_more or next_question is None:
             return {
                 "answer_saved": True,
@@ -1395,11 +1569,11 @@ async def submit_answer_and_get_next(req: SubmitIterativeAnswerRequest) -> Dict[
                 "remaining_gaps": 0,
                 "message": "All critical information gathered. Ready to generate response.",
             }
-        
+
         req_id = next_question.get("requirement_id", "general")
         next_question["question_id"] = f"{req_id}-q-{len(context.answers)}"
         next_question["priority"] = "high"
-        
+
         q_obj = Question(
             question_id=next_question["question_id"],
             requirement_id=next_question.get("requirement_id"),
@@ -1410,7 +1584,7 @@ async def submit_answer_and_get_next(req: SubmitIterativeAnswerRequest) -> Dict[
             asked_at=datetime.now().isoformat(),
         )
         context.questions.append(q_obj)
-        
+
         return {
             "answer_saved": True,
             "next_question": next_question,
@@ -1418,7 +1592,7 @@ async def submit_answer_and_get_next(req: SubmitIterativeAnswerRequest) -> Dict[
             "remaining_gaps": remaining,
             "message": f"Answer saved. Next critical question (3-5 sentences please).",
         }
-        
+
     except Exception as exc:
         logger.exception("Failed to get next question: %s", exc)
         return {
@@ -1435,7 +1609,7 @@ class CreateSessionRequest(BaseModel):
     requirement_id: Optional[str] = None
 
 
-#function to create a new chat session for iterative Q&A
+# function to create a new chat session for iterative Q&A
 @app.post("/chat/session")
 async def create_chat_session(req: CreateSessionRequest) -> Dict[str, Any]:
     session_id = str(uuid.uuid4())
@@ -1454,19 +1628,19 @@ class AddQuestionsRequest(BaseModel):
     questions: List[Dict[str, Any]]
 
 
-#function to add questions to an existing chat session
+# function to add questions to an existing chat session
 @app.post("/chat/questions")
 async def add_questions(req: AddQuestionsRequest) -> Dict[str, Any]:
     if req.session_id not in _conversation_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     context = _conversation_sessions[req.session_id]
-    
+
     for q_dict in req.questions:
         question = Question(**q_dict)
         question.asked_at = datetime.now().isoformat()
         context.questions.append(question)
-    
+
     logger.info("Added %d questions to session %s", len(req.questions), req.session_id)
     return {"status": "ok", "questions_count": len(context.questions)}
 
@@ -1477,18 +1651,20 @@ class SubmitAnswerRequest(BaseModel):
     answer_text: str
 
 
-#function to submit an answer to a question in a chat session
+# function to submit an answer to a question in a chat session
 @app.post("/chat/answer")
 async def submit_answer(req: SubmitAnswerRequest) -> Dict[str, Any]:
     if req.session_id not in _conversation_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     context = _conversation_sessions[req.session_id]
-    
-    question = next((q for q in context.questions if q.question_id == req.question_id), None)
+
+    question = next(
+        (q for q in context.questions if q.question_id == req.question_id), None
+    )
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
-    
+
     answer = Answer(
         question_id=req.question_id,
         answer_text=req.answer_text,
@@ -1496,7 +1672,7 @@ async def submit_answer(req: SubmitAnswerRequest) -> Dict[str, Any]:
     )
     context.answers.append(answer)
     question.answered = True
-    
+
     remaining_questions = [q for q in context.questions if not q.answered]
     auto_resolved_ids: list[str] = []
     if remaining_questions:
@@ -1513,7 +1689,7 @@ async def submit_answer(req: SubmitAnswerRequest) -> Dict[str, Any]:
                 exc,
             )
             auto_resolved_ids = []
-    
+
     for qid in auto_resolved_ids:
         extra_q = next((q for q in context.questions if q.question_id == qid), None)
         if extra_q and not extra_q.answered:
@@ -1524,7 +1700,7 @@ async def submit_answer(req: SubmitAnswerRequest) -> Dict[str, Any]:
             )
             context.answers.append(extra_answer)
             extra_q.answered = True
-    
+
     if auto_resolved_ids:
         logger.info(
             "Answer to question %s in session %s also resolved %d other question(s): %s",
@@ -1539,7 +1715,7 @@ async def submit_answer(req: SubmitAnswerRequest) -> Dict[str, Any]:
             req.question_id,
             req.session_id,
         )
-    
+
     return {
         "status": "ok",
         "answer": answer.model_dump(),
@@ -1547,12 +1723,12 @@ async def submit_answer(req: SubmitAnswerRequest) -> Dict[str, Any]:
     }
 
 
-#function to return the state of a chat session (questions and answers)
+# function to return the state of a chat session (questions and answers)
 @app.get("/chat/session/{session_id}")
 async def get_session(session_id: str) -> Dict[str, Any]:
     if session_id not in _conversation_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     context = _conversation_sessions[session_id]
     return {
         "session_id": context.session_id,
@@ -1564,7 +1740,7 @@ async def get_session(session_id: str) -> Dict[str, Any]:
     }
 
 
-#function to enrich build query with session context
+# function to enrich build query with session context
 @app.post("/enrich-build-query")
 async def enrich_build_query_endpoint(req: EnrichBuildQueryRequest) -> Dict[str, Any]:
     try:
@@ -1581,7 +1757,9 @@ async def enrich_build_query_endpoint(req: EnrichBuildQueryRequest) -> Dict[str,
         if qa_context:
             original_text = build_query.query_text or ""
             if original_text and qa_context:
-                enriched_text = f"{original_text}\n\n--- Q&A Context from Session ---\n{qa_context}"
+                enriched_text = (
+                    f"{original_text}\n\n--- Q&A Context from Session ---\n{qa_context}"
+                )
                 build_query.query_text = enriched_text
                 logger.info(
                     "Enriched build query with Q&A context from session %s (%d answers, added %d chars)",
@@ -1602,7 +1780,9 @@ async def enrich_build_query_endpoint(req: EnrichBuildQueryRequest) -> Dict[str,
                 len(context.answers),
             )
     else:
-        logger.info("Enrich build query called without valid session_id; returning original build query text")
+        logger.info(
+            "Enrich build query called without valid session_id; returning original build query text"
+        )
 
     return build_query.model_dump()
 
@@ -1623,40 +1803,51 @@ async def preview_responses_endpoint(req: PreviewResponseRequest) -> Dict[str, A
     logger.info("Preview responses endpoint called")
     try:
         from backend.models import RequirementsResult
-        
+
         preprocess_result = PreprocessResult(**req.preprocess)
         extraction_result = _extraction_from_preprocess(preprocess_result)
         requirements_result = RequirementsResult(**req.requirements)
-        
+
         if not requirements_result.solution_requirements:
             raise HTTPException(
                 status_code=400,
                 detail="No solution requirements found. Cannot generate responses.",
             )
-        
+
         if requirements_result.structure_detection is None:
-            structure_detection_dict = detect_structure(requirements_result.response_structure_requirements)
-            requirements_result.structure_detection = StructureDetectionResult(**structure_detection_dict)
-        
+            structure_detection_dict = detect_structure(
+                requirements_result.response_structure_requirements
+            )
+            requirements_result.structure_detection = StructureDetectionResult(
+                **structure_detection_dict
+            )
+
         structure_detection = requirements_result.structure_detection
-        
+
         rag_system, knowledge_base = _setup_rag_and_kb(req.use_rag)
-        
+
         qa_context = ""
         if req.session_id and req.session_id in _conversation_sessions:
             context = _conversation_sessions[req.session_id]
             qa_context = context.get_qa_context()
-        
-        validation_errors = validate_before_generation(extraction_result, requirements_result)
+
+        validation_errors = validate_before_generation(
+            extraction_result, requirements_result
+        )
         if validation_errors:
-            raise HTTPException(status_code=400, detail="Validation failed: " + "; ".join(validation_errors))
-        
+            raise HTTPException(
+                status_code=400,
+                detail="Validation failed: " + "; ".join(validation_errors),
+            )
+
         individual_responses = []
         total_requirements = len(requirements_result.solution_requirements)
-        
-        for idx, solution_req in enumerate(requirements_result.solution_requirements, 1):
+
+        for idx, solution_req in enumerate(
+            requirements_result.solution_requirements, 1
+        ):
             key_phrase = _extract_key_phrase(solution_req.source_text)
-            
+
             try:
                 build_query_obj = build_query_for_single_requirement(
                     extraction_result=extraction_result,
@@ -1664,43 +1855,53 @@ async def preview_responses_endpoint(req: PreviewResponseRequest) -> Dict[str, A
                     all_response_structure_requirements=requirements_result.response_structure_requirements,
                 )
                 build_query_obj.confirmed = True
-                
+
                 result = run_response_agent(
                     build_query=build_query_obj,
                     knowledge_base=knowledge_base,
                     qa_context=qa_context,
                 )
-                
-                quality_assessment = assess_response_quality(solution_req, result.response_text)
-                
-                individual_responses.append({
-                    "requirement_id": solution_req.id,
-                    "requirement_text": solution_req.source_text,
-                    "key_phrase": key_phrase,
-                    "response": result.response_text,
-                    "notes": result.notes,
-                    "quality": quality_assessment,
-                })
+
+                quality_assessment = assess_response_quality(
+                    solution_req, result.response_text
+                )
+
+                individual_responses.append(
+                    {
+                        "requirement_id": solution_req.id,
+                        "requirement_text": solution_req.source_text,
+                        "key_phrase": key_phrase,
+                        "response": result.response_text,
+                        "notes": result.notes,
+                        "quality": quality_assessment,
+                    }
+                )
             except Exception as req_exc:
-                logger.error("Failed to generate response for requirement %s: %s", solution_req.id, req_exc)
-                individual_responses.append({
-                    "requirement_id": solution_req.id,
-                    "requirement_text": solution_req.source_text,
-                    "key_phrase": key_phrase,
-                    "response": f"[ERROR: Failed to generate response: {str(req_exc)}]",
-                    "notes": f"Error: {str(req_exc)}",
-                    "quality": {
-                        "score": 0.0,
-                        "completeness": "incomplete",
-                        "relevance": "low",
-                        "issues": [f"Generation failed: {str(req_exc)}"],
-                        "suggestions": ["Fix the error and regenerate"],
-                    },
-                })
-        
+                logger.error(
+                    "Failed to generate response for requirement %s: %s",
+                    solution_req.id,
+                    req_exc,
+                )
+                individual_responses.append(
+                    {
+                        "requirement_id": solution_req.id,
+                        "requirement_text": solution_req.source_text,
+                        "key_phrase": key_phrase,
+                        "response": f"[ERROR: Failed to generate response: {str(req_exc)}]",
+                        "notes": f"Error: {str(req_exc)}",
+                        "quality": {
+                            "score": 0.0,
+                            "completeness": "incomplete",
+                            "relevance": "low",
+                            "issues": [f"Generation failed: {str(req_exc)}"],
+                            "suggestions": ["Fix the error and regenerate"],
+                        },
+                    }
+                )
+
         preview_id = str(uuid.uuid4())
         _response_cache[preview_id] = individual_responses
-        
+
         return {
             "preview_id": preview_id,
             "responses": individual_responses,
@@ -1726,7 +1927,9 @@ class PreviewContextRequest(BaseModel):
 
 @app.post("/preview-context")
 @app.get("/preview-context")
-async def preview_context_endpoint(req: PreviewContextRequest | None = None) -> Dict[str, Any]:
+async def preview_context_endpoint(
+    req: PreviewContextRequest | None = None,
+) -> Dict[str, Any]:
     if req is None:
         return {
             "message": "POST /preview-context expected. Use POST with JSON body {preprocess, requirements, use_rag, num_retrieval_chunks, session_id}.",
@@ -1747,7 +1950,9 @@ async def preview_context_endpoint(req: PreviewContextRequest | None = None) -> 
                 try:
                     results = rag_system.search(qtext, k=req.num_retrieval_chunks)
                 except Exception as e:
-                    logger.exception("RAG search failed for requirement %s: %s", solution_req.id, e)
+                    logger.exception(
+                        "RAG search failed for requirement %s: %s", solution_req.id, e
+                    )
                     results = []
                 rag_contexts_by_req[solution_req.id] = results
         else:
@@ -1765,7 +1970,9 @@ async def preview_context_endpoint(req: PreviewContextRequest | None = None) -> 
         }
     except Exception as exc:
         logger.exception("Preview context failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Preview context failed: {str(exc)}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Preview context failed: {str(exc)}"
+        ) from exc
 
 
 class UpdateResponseRequest(BaseModel):
@@ -1778,16 +1985,22 @@ class UpdateResponseRequest(BaseModel):
 async def update_response_endpoint(req: UpdateResponseRequest) -> Dict[str, Any]:
     if req.preview_id not in _response_cache:
         raise HTTPException(status_code=404, detail="Preview not found")
-    
+
     responses = _response_cache[req.preview_id]
-    response = next((r for r in responses if r["requirement_id"] == req.requirement_id), None)
-    
+    response = next(
+        (r for r in responses if r["requirement_id"] == req.requirement_id), None
+    )
+
     if not response:
         raise HTTPException(status_code=404, detail="Requirement not found in preview")
-    
+
     response["response"] = req.response_text
-    logger.info("Updated response for requirement %s in preview %s", req.requirement_id, req.preview_id)
-    
+    logger.info(
+        "Updated response for requirement %s in preview %s",
+        req.requirement_id,
+        req.preview_id,
+    )
+
     return {"status": "ok", "updated": True}
 
 
@@ -1795,25 +2008,29 @@ class GeneratePDFFromPreviewRequest(BaseModel):
     preview_id: str
     preprocess: Dict[str, Any]
     requirements: Dict[str, Any]
-    format: str = "pdf" 
+    format: str = "pdf"
 
 
 @app.post("/generate-pdf-from-preview")
-async def generate_pdf_from_preview_endpoint(req: GeneratePDFFromPreviewRequest) -> Response:
+async def generate_pdf_from_preview_endpoint(
+    req: GeneratePDFFromPreviewRequest,
+) -> Response:
     if req.preview_id not in _response_cache:
         raise HTTPException(status_code=404, detail="Preview not found")
-    
+
     individual_responses = _response_cache[req.preview_id]
-    
+
     preprocess_result = PreprocessResult(**req.preprocess)
     extraction_result = _extraction_from_preprocess(preprocess_result)
     requirements_result = RequirementsResult(**req.requirements)
-    
-    rfp_title = _extract_title_from_key_requirements(extraction_result.key_requirements_summary)
-    
+
+    rfp_title = _extract_title_from_key_requirements(
+        extraction_result.key_requirements_summary
+    )
+
     project_root = Path(__file__).parent.parent
     timestamp = int(time.time())
-    
+
     logger.info(
         "Generate PDF from preview called (format=%s, preview_id=%s)",
         req.format,
@@ -1825,8 +2042,11 @@ async def generate_pdf_from_preview_endpoint(req: GeneratePDFFromPreviewRequest)
             from backend.document_formatter import generate_rfp_docx
         except ImportError as import_err:
             logger.error("DOCX generation not available: %s", import_err)
-            raise HTTPException(status_code=500, detail="DOCX generation not available. Install python-docx.") from import_err
-        
+            raise HTTPException(
+                status_code=500,
+                detail="DOCX generation not available. Install python-docx.",
+            ) from import_err
+
         output_dir = project_root / "output" / "docx"
         output_dir.mkdir(parents=True, exist_ok=True)
         filename = f"rfp_response_{extraction_result.language}_{timestamp}.docx"
@@ -1844,19 +2064,19 @@ async def generate_pdf_from_preview_endpoint(req: GeneratePDFFromPreviewRequest)
             rfp_title=rfp_title,
             output_path=output_path,
         )
-        
+
         return Response(
             content=docx_bytes,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Content-Length": str(len(docx_bytes)),
-            }
+            },
         )
-    
+
     elif req.format == "markdown":
         from backend.document_formatter import generate_rfp_markdown
-        
+
         output_dir = project_root / "output" / "markdown"
         output_dir.mkdir(parents=True, exist_ok=True)
         filename = f"rfp_response_{extraction_result.language}_{timestamp}.md"
@@ -1874,19 +2094,19 @@ async def generate_pdf_from_preview_endpoint(req: GeneratePDFFromPreviewRequest)
             rfp_title=rfp_title,
             output_path=output_path,
         )
-        
+
         return Response(
             content=markdown_bytes,
             media_type="text/markdown",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Content-Length": str(len(markdown_bytes)),
-            }
+            },
         )
-    
+
     else:
         from backend.document_formatter import generate_rfp_pdf
-        
+
         output_dir = project_root / "output" / "pdfs"
         output_dir.mkdir(parents=True, exist_ok=True)
         filename = f"rfp_response_{extraction_result.language}_{timestamp}.pdf"
@@ -1903,13 +2123,16 @@ async def generate_pdf_from_preview_endpoint(req: GeneratePDFFromPreviewRequest)
             rfp_title=rfp_title,
             output_path=None,
         )
-        
+
         try:
             pdf_path.write_bytes(pdf_bytes)
             logger.info("PDF also saved to disk: %s", pdf_path.absolute())
         except Exception as save_err:
-            logger.warning("Failed to save PDF to disk: %s (continuing with in-memory response)", save_err)
-        
+            logger.warning(
+                "Failed to save PDF to disk: %s (continuing with in-memory response)",
+                save_err,
+            )
+
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
@@ -1917,116 +2140,140 @@ async def generate_pdf_from_preview_endpoint(req: GeneratePDFFromPreviewRequest)
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Content-Length": str(len(pdf_bytes)),
                 "X-PDF-Path": str(pdf_path.absolute()),
-            }
+            },
         )
 
 
-#function to convert HTML content to DOCX using python-docx
+# function to convert HTML content to DOCX using python-docx
 def _html_to_docx(html_content: str) -> bytes:
     try:
         from bs4 import BeautifulSoup
     except ImportError:
-        raise ImportError("beautifulsoup4 is not installed. Install it with: pip install beautifulsoup4")
-    
+        raise ImportError(
+            "beautifulsoup4 is not installed. Install it with: pip install beautifulsoup4"
+        )
+
     try:
         from docx import Document
         from docx.shared import Pt, RGBColor
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from io import BytesIO
     except ImportError:
-        raise ImportError("python-docx is not installed. Install it with: pip install python-docx")
-    
+        raise ImportError(
+            "python-docx is not installed. Install it with: pip install python-docx"
+        )
+
     doc = Document()
-    
+
     normal = doc.styles["Normal"]
     normal.font.name = "Calibri"
     normal.font.size = Pt(11)
-    
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    for element in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'table', 'img', 'br', 'div']):
-        if element.name == 'p':
+
+    soup = BeautifulSoup(html_content, "html.parser")
+
+    for element in soup.find_all(
+        [
+            "p",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "ul",
+            "ol",
+            "table",
+            "img",
+            "br",
+            "div",
+        ]
+    ):
+        if element.name == "p":
             para = doc.add_paragraph()
             _add_text_to_paragraph(para, element)
-        elif element.name in ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']:
+        elif element.name in ["h1", "h2", "h3", "h4", "h5", "h6"]:
             level = int(element.name[1])
             heading = doc.add_heading(level=min(level, 9))
             _add_text_to_paragraph(heading, element)
-        elif element.name == 'ul' or element.name == 'ol':
-            for li in element.find_all('li', recursive=False):
-                para = doc.add_paragraph(style='List Bullet' if element.name == 'ul' else 'List Number')
+        elif element.name == "ul" or element.name == "ol":
+            for li in element.find_all("li", recursive=False):
+                para = doc.add_paragraph(
+                    style="List Bullet" if element.name == "ul" else "List Number"
+                )
                 _add_text_to_paragraph(para, li)
-        elif element.name == 'table':
+        elif element.name == "table":
             _add_table_to_doc(doc, element)
-        elif element.name == 'img':
-            src = element.get('src', '')
-            if src.startswith('data:image'):
+        elif element.name == "img":
+            src = element.get("src", "")
+            if src.startswith("data:image"):
                 try:
                     import base64
-                    header, encoded = src.split(',', 1)
+
+                    header, encoded = src.split(",", 1)
                     img_data = base64.b64decode(encoded)
                     from io import BytesIO
+
                     doc.add_picture(BytesIO(img_data))
                 except Exception as e:
                     logger.warning(f"Failed to add image: {e}")
-        elif element.name == 'br':
+        elif element.name == "br":
             doc.add_paragraph()
-        elif element.name == 'div' and element.get_text(strip=True):
+        elif element.name == "div" and element.get_text(strip=True):
             para = doc.add_paragraph()
             _add_text_to_paragraph(para, element)
-    
+
     if len(doc.paragraphs) == 0:
         text_content = soup.get_text()
-        for line in text_content.split('\n'):
+        for line in text_content.split("\n"):
             if line.strip():
                 doc.add_paragraph(line.strip())
-    
+
     buf = BytesIO()
     doc.save(buf)
     return buf.getvalue()
 
 
-#function to add text content to a paragraph, handling formatting
+# function to add text content to a paragraph, handling formatting
 def _add_text_to_paragraph(para, element):
     from bs4 import NavigableString
-    
+
     for content in element.contents:
         if isinstance(content, NavigableString):
             text = str(content).strip()
             if text:
                 para.add_run(text)
-        elif hasattr(content, 'name'):
-            if content.name == 'strong' or content.name == 'b':
+        elif hasattr(content, "name"):
+            if content.name == "strong" or content.name == "b":
                 run = para.add_run(content.get_text())
                 run.bold = True
-            elif content.name == 'em' or content.name == 'i':
+            elif content.name == "em" or content.name == "i":
                 run = para.add_run(content.get_text())
                 run.italic = True
-            elif content.name == 'u':
+            elif content.name == "u":
                 run = para.add_run(content.get_text())
                 run.underline = True
             else:
                 para.add_run(content.get_text())
 
 
-#function to add a table from HTML to DOCX
+# function to add a table from HTML to DOCX
 def _add_table_to_doc(doc, table_element):
-    rows = table_element.find_all('tr')
+    rows = table_element.find_all("tr")
     if not rows:
         return
-    
-    max_cols = max(len(row.find_all(['td', 'th'])) for row in rows)
+
+    max_cols = max(len(row.find_all(["td", "th"])) for row in rows)
     if max_cols == 0:
         return
-    
+
     table = doc.add_table(rows=len(rows), cols=max_cols)
-    
+
     for row_idx, row in enumerate(rows):
-        cells = row.find_all(['td', 'th'])
+        cells = row.find_all(["td", "th"])
         for col_idx, cell in enumerate(cells[:max_cols]):
             table.rows[row_idx].cells[col_idx].text = cell.get_text(strip=True)
             # Style header cells
-            if cell.name == 'th':
+            if cell.name == "th":
                 for para in table.rows[row_idx].cells[col_idx].paragraphs:
                     for run in para.runs:
                         run.bold = True
@@ -2037,11 +2284,12 @@ class SaveDocxRequest(BaseModel):
     html_content: Optional[str] = None
     filename: Optional[str] = None
 
+
 @app.post("/save-docx")
-#function to save a DOCX file to the output folder (from blob or HTML)
+# function to save a DOCX file to the output folder (from blob or HTML)
 async def save_docx_endpoint(req: SaveDocxRequest) -> Dict[str, Any]:
     import base64
-    
+
     try:
 
         if req.html_content:
@@ -2055,24 +2303,28 @@ async def save_docx_endpoint(req: SaveDocxRequest) -> Dict[str, Any]:
                 status_code=400,
                 detail="Either 'docx_bytes' or 'html_content' must be provided",
             )
-        
+
         project_root = Path(__file__).parent.parent
         output_dir = project_root / "output" / "docx"
         output_dir.mkdir(parents=True, exist_ok=True)
-        
+
         if not req.filename:
             timestamp = int(time.time())
             req.filename = f"rfp_response_en_{timestamp}.docx"
-        
-        if not req.filename.endswith('.docx'):
-            req.filename += '.docx'
-        
+
+        if not req.filename.endswith(".docx"):
+            req.filename += ".docx"
+
         output_path = output_dir / req.filename
-        
+
         output_path.write_bytes(docx_bytes)
-        
-        logger.info("DOCX saved successfully: %d bytes to %s", len(docx_bytes), output_path.absolute())
-        
+
+        logger.info(
+            "DOCX saved successfully: %d bytes to %s",
+            len(docx_bytes),
+            output_path.absolute(),
+        )
+
         return {
             "status": "ok",
             "filename": req.filename,
@@ -2091,25 +2343,29 @@ class StoreEditMemoryRequest(BaseModel):
     changed_sentences: List[Dict[str, Any]]
     requirements_context: Optional[Dict[str, Any]] = None
 
+
 @app.post("/store-edit-memory")
 async def store_edit_memory_endpoint(req: StoreEditMemoryRequest) -> Dict[str, Any]:
     try:
         from backend.memory.mem0_client import store_edit_memory
-        
+
         source_text = ""
         if req.changed_sentences and len(req.changed_sentences) > 0:
             first_sentence = req.changed_sentences[0].get("edited_sentence", "")
             source_text = first_sentence[:500]
-        
+
         edit_payload = {
             "changed_sentences": req.changed_sentences,
             "requirements_context": req.requirements_context,
         }
-        
+
         success = store_edit_memory(source_text, edit_payload)
-        
+
         if success:
-            logger.info("Stored edit memory with %d changed sentences", len(req.changed_sentences))
+            logger.info(
+                "Stored edit memory with %d changed sentences",
+                len(req.changed_sentences),
+            )
             return {
                 "status": "ok",
                 "changed_sentences_count": len(req.changed_sentences),
@@ -2137,7 +2393,7 @@ async def health() -> Dict[str, Any]:
 async def serve_frontend(path: str):
     if path.startswith(("assets/", "src/", "public/")):
         raise HTTPException(status_code=404, detail="Static file not found")
-    
+
     project_root = Path(__file__).resolve().parent.parent
     index_path = project_root / "frontend" / "dist" / "index.html"
     if not index_path.exists():
@@ -2145,5 +2401,3 @@ async def serve_frontend(path: str):
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="Frontend not found")
     return HTMLResponse(index_path.read_text(encoding="utf-8"))
-
-

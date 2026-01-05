@@ -18,7 +18,7 @@ async def render_mermaid_to_png(
     if not mermaid_code or not mermaid_code.strip():
         logger.warning("Empty Mermaid code provided")
         return None
-    
+
     code = mermaid_code.strip()
     if code.startswith("```mermaid"):
         code = code[10:].strip()
@@ -26,7 +26,7 @@ async def render_mermaid_to_png(
         code = code[3:].strip()
     if code.endswith("```"):
         code = code[:-3].strip()
-    
+
     server_params = StdioServerParameters(
         command="npx",
         args=["-y", "@peng-shawn/mermaid-mcp-server"],
@@ -49,10 +49,14 @@ async def render_mermaid_to_png(
                 tools = await session.list_tools()
                 tool_names = {t.name for t in tools.tools}
                 if "generate" not in tool_names:
-                    logger.error(f"'generate' tool not found. Available tools: {sorted(tool_names)}")
+                    logger.error(
+                        f"'generate' tool not found. Available tools: {sorted(tool_names)}"
+                    )
                     return None
 
-                logger.debug(f"Rendering Mermaid diagram via MCP (code length: {len(code)} chars)")
+                logger.debug(
+                    f"Rendering Mermaid diagram via MCP (code length: {len(code)} chars)"
+                )
                 result = await session.call_tool(
                     "generate",
                     arguments={
@@ -66,7 +70,10 @@ async def render_mermaid_to_png(
                 png_bytes: Optional[bytes] = None
 
                 for block in result.content:
-                    if isinstance(block, types.ImageContent) and (block.mimeType or "").lower() == "image/png":
+                    if (
+                        isinstance(block, types.ImageContent)
+                        and (block.mimeType or "").lower() == "image/png"
+                    ):
                         data = block.data
                         if isinstance(data, bytes):
                             png_bytes = data
@@ -90,7 +97,9 @@ async def render_mermaid_to_png(
                     logger.error(f"No image/png returned from MCP server. Got: {got}")
                     return None
 
-                logger.info(f"Successfully rendered Mermaid diagram to PNG ({len(png_bytes)} bytes)")
+                logger.info(
+                    f"Successfully rendered Mermaid diagram to PNG ({len(png_bytes)} bytes)"
+                )
                 return png_bytes
 
     except Exception as e:
@@ -107,10 +116,12 @@ def render_mermaid_to_png_sync(
         try:
             loop = asyncio.get_running_loop()
             import concurrent.futures
+
             def run_in_thread():
                 return asyncio.run(
                     render_mermaid_to_png(mermaid_code, theme, background_color)
                 )
+
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(run_in_thread)
                 return future.result(timeout=60)
@@ -121,4 +132,3 @@ def render_mermaid_to_png_sync(
     except Exception as e:
         logger.exception(f"Failed to render Mermaid diagram synchronously: {e}")
         return None
-

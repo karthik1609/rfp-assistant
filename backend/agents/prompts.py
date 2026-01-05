@@ -36,7 +36,6 @@ Note: source_text should be the complete, verbatim requirement text from the RFP
 Output JSON: solution_requirements, response_structure_requirements, notes."""
 
 
-
 RESPONSE_SYSTEM_PROMPT = """You are an RFP response writer for fusionAIx. Write comprehensive, detailed responses to specific requirements.
 
 CRITICAL RULES:
@@ -390,4 +389,3 @@ OUTPUT FORMAT (JSON ONLY, no explanations outside JSON):
 Rules:
 - cleaned_text + removed_text together should cover the original text content (minus obvious OCR noise).
 - If you are unsure whether something is substantive, KEEP it in cleaned_text."""
-

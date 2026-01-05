@@ -6,7 +6,13 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 
 from backend.llm.client import chat_completion
-from backend.models import RequirementItem, Question, BuildQuery, RequirementsResult, Answer
+from backend.models import (
+    RequirementItem,
+    Question,
+    BuildQuery,
+    RequirementsResult,
+    Answer,
+)
 from backend.rag import RAGSystem
 from backend.knowledge_base.company_kb import CompanyKnowledgeBase
 from backend.agents.prompts import QUESTION_SYSTEM_PROMPT
@@ -16,7 +22,8 @@ QUESTION_MODEL = "gpt-5-chat"
 
 MAX_CRITICAL_QUESTIONS = 5
 
- #function to determine the next single most critical clarification question
+
+# function to determine the next single most critical clarification question
 def get_next_critical_question(
     requirements_result: RequirementsResult,
     company_kb: CompanyKnowledgeBase,
@@ -31,28 +38,30 @@ def get_next_critical_question(
         len(rag_contexts_by_req),
         max_questions,
     )
-    
+
     if len(previous_answers) >= max_questions:
         logger.info(
             "Maximum number of critical questions (%d) already reached. No more questions will be asked.",
             max_questions,
         )
         return None, 0, rag_contexts_by_req
-    
+
     known_info = company_kb.format_for_prompt()
-    
+
     answers_context = ""
     skipped_topics = []
     if previous_answers:
         answer_lines = []
         for a in previous_answers:
             if not a.answer_text or a.answer_text.strip() == "":
-                answer_lines.append(f"Q: {a.question_text}\nA: [SKIPPED - Topic intentionally skipped, do NOT ask about this topic again]")
+                answer_lines.append(
+                    f"Q: {a.question_text}\nA: [SKIPPED - Topic intentionally skipped, do NOT ask about this topic again]"
+                )
                 skipped_topics.append(a.question_text.lower())
             else:
                 answer_lines.append(f"Q: {a.question_text}\nA: {a.answer_text}")
         answers_context = "\n".join(answer_lines)
-    
+
     all_requirements_with_rag = []
     for req in requirements_result.solution_requirements:
         rag_ctx = rag_contexts_by_req.get(req.id)
@@ -66,15 +75,17 @@ def get_next_critical_question(
                 "rag_context": rag_ctx or "[No RAG info]",
             }
         )
-    
-    requirements_text = "\n\n".join([
-        f"REQUIREMENT {r['id']}:\n{r['text']}\n\nRAG INFO FOR {r['id']}:\n{r['rag_context']}"
-        for r in all_requirements_with_rag
-    ])
-    
+
+    requirements_text = "\n\n".join(
+        [
+            f"REQUIREMENT {r['id']}:\n{r['text']}\n\nRAG INFO FOR {r['id']}:\n{r['rag_context']}"
+            for r in all_requirements_with_rag
+        ]
+    )
+
     questions_asked = len(previous_answers)
     questions_remaining = max_questions - questions_asked
-    
+
     user_prompt = f"""You are helping a vendor respond to an RFP. Your job is to identify what information the vendor should provide to create a high-quality response.
 
 KNOWN COMPANY INFO (already available):
@@ -136,13 +147,16 @@ IMPORTANT:
         response = chat_completion(
             model=QUESTION_MODEL,
             messages=[
-                {"role": "system", "content": "You identify important information gaps in RFP requirements. Ask questions that would improve response quality. Keep questions concise (3-5 sentences). Ask one at a time."},
+                {
+                    "role": "system",
+                    "content": "You identify important information gaps in RFP requirements. Ask questions that would improve response quality. Keep questions concise (3-5 sentences). Ask one at a time.",
+                },
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
             max_tokens=800,
         )
-        
+
         cleaned = response.strip()
         if cleaned.startswith("```json"):
             cleaned = cleaned[7:]
@@ -151,44 +165,48 @@ IMPORTANT:
         if cleaned.endswith("```"):
             cleaned = cleaned[:-3]
         cleaned = cleaned.strip()
-        
+
         result = json.loads(cleaned)
-        
+
         logger.info(
             "Question generation result: has_gap=%s, question=%s",
             result.get("has_critical_gap"),
             "present" if result.get("question") else "missing",
         )
-        
+
         if not result.get("has_critical_gap", False) or not result.get("question"):
-            logger.info("No more questions needed - LLM determined all info is available")
+            logger.info(
+                "No more questions needed - LLM determined all info is available"
+            )
             return None, 0, rag_contexts_by_req
-        
+
         question = result["question"]
         question_text_lower = question.get("question_text", "").lower()
-        
+
         for skipped_q in skipped_topics:
             skipped_words = [w for w in skipped_q.split() if len(w) > 4]
-            if skipped_words and any(word in question_text_lower for word in skipped_words):
+            if skipped_words and any(
+                word in question_text_lower for word in skipped_words
+            ):
                 logger.info(
                     "Skipping question about previously skipped topic: %s (skipped: %s)",
                     question.get("question_text", "")[:60],
                     skipped_q[:60],
                 )
                 return None, 0, rag_contexts_by_req
-        
+
         question["priority"] = "high"
         remaining = result.get("remaining_gaps", 0)
-        
+
         logger.info(
             "Next critical question for %s: %s (remaining_gaps=%d)",
             question.get("requirement_id", "unknown"),
             question.get("question_text", "")[:60],
             remaining,
         )
-        
+
         return question, remaining, rag_contexts_by_req
-        
+
     except json.JSONDecodeError as e:
         logger.error("Failed to parse critical question response: %s", e)
         return None, 0, rag_contexts_by_req
@@ -197,7 +215,7 @@ IMPORTANT:
         return None, 0, rag_contexts_by_req
 
 
-#function to check whether more clarification questions are needed and return next question
+# function to check whether more clarification questions are needed and return next question
 def check_if_more_questions_needed(
     requirements_result: RequirementsResult,
     company_kb: CompanyKnowledgeBase,
@@ -212,13 +230,14 @@ def check_if_more_questions_needed(
         previous_answers=all_answers,
         rag_contexts_by_req=rag_contexts_by_req,
     )
-    
+
     if question is None:
         return False, None, 0, rag_contexts_by_req
-    
+
     return True, question, remaining, rag_contexts_by_req
 
-#function to collect compact RAG context for a requirement (search k chunks)
+
+# function to collect compact RAG context for a requirement (search k chunks)
 def _build_rag_context_for_requirement(
     requirement: RequirementItem,
     rag_system: Optional[RAGSystem],
@@ -260,7 +279,8 @@ def _build_rag_context_for_requirement(
         logger.warning("RAG lookup for requirement %s failed: %s", requirement.id, e)
         return ""
 
-#function to heuristically test if a question is already answered by rag_context
+
+# function to heuristically test if a question is already answered by rag_context
 def _is_question_covered_by_rag(question_text: str, rag_context: str) -> bool:
     if not rag_context or not question_text:
         return False
@@ -275,7 +295,8 @@ def _is_question_covered_by_rag(question_text: str, rag_context: str) -> bool:
     overlap = sum(1 for w in words if w in rc)
     return overlap >= 2
 
-#function to generate a list of follow-up questions for a requirement
+
+# function to generate a list of follow-up questions for a requirement
 def generate_questions(
     requirement: RequirementItem,
     all_requirements: List[RequirementItem],
@@ -286,16 +307,15 @@ def generate_questions(
         "Question agent: analyzing requirement %s for information gaps",
         requirement.id,
     )
-    
+
     known_topics = company_kb.get_all_known_topics()
     known_info_text = company_kb.format_for_prompt()
     rag_context = _build_rag_context_for_requirement(requirement, rag_system)
-    
-    all_req_text = "\n\n".join([
-        f"[{req.id}] {req.source_text}"
-        for req in all_requirements[:10]
-    ])
-    
+
+    all_req_text = "\n\n".join(
+        [f"[{req.id}] {req.source_text}" for req in all_requirements[:10]]
+    )
+
     user_prompt = f"""Analyze the following requirement and identify ONLY the information that is MISSING or UNCLEAR that would be absolutely critical to create a proper response.
 
 KNOWN COMPANY INFORMATION (DO NOT ask about these):
@@ -324,7 +344,7 @@ Output JSON array of questions, each with:
 
 If no questions are needed (all information is clear, in knowledge base, or any gaps are minor/nice-to-have), return an empty array [].
 """
-    
+
     try:
         content = chat_completion(
             model=QUESTION_MODEL,
@@ -335,22 +355,23 @@ If no questions are needed (all information is clear, in knowledge base, or any 
             temperature=0.0,
             max_tokens=1500,
         )
-        
+
         cleaned = content.replace("```json", "").replace("```", "").strip()
         try:
             questions = json.loads(cleaned)
         except json.JSONDecodeError:
             import re
-            array_match = re.search(r'\[.*\]', cleaned, re.DOTALL)
+
+            array_match = re.search(r"\[.*\]", cleaned, re.DOTALL)
             if array_match:
                 questions = json.loads(array_match.group(0))
             else:
                 logger.warning("Could not parse questions JSON, returning empty list")
                 questions = []
-        
+
         if not isinstance(questions, list):
             questions = []
-        
+
         validated_questions = []
         for q in questions:
             if isinstance(q, dict) and "question_text" in q:
@@ -362,10 +383,12 @@ If no questions are needed (all information is clear, in knowledge base, or any 
                 }
                 if validated_q["question_text"]:
                     validated_questions.append(validated_q)
-        
+
         rag_filtered_questions: List[Dict[str, Any]] = []
         for q in validated_questions:
-            if rag_context and _is_question_covered_by_rag(q["question_text"], rag_context):
+            if rag_context and _is_question_covered_by_rag(
+                q["question_text"], rag_context
+            ):
                 logger.info(
                     "Question agent: skipping question for requirement %s because RAG already covers it: %s",
                     requirement.id,
@@ -373,7 +396,7 @@ If no questions are needed (all information is clear, in knowledge base, or any 
                 )
                 continue
             rag_filtered_questions.append(q)
-        
+
         filtered_questions = []
         for q in rag_filtered_questions:
             question_text = q["question_text"].lower()
@@ -386,11 +409,15 @@ If no questions are needed (all information is clear, in knowledge base, or any 
                         break
             if not should_skip:
                 filtered_questions.append(q)
-        
-        priority_order = {"high": 0, "medium": 1, "low": 2}
-        filtered_questions.sort(key=lambda q: priority_order.get(q.get("priority", "medium"), 1))
 
-        high_only = [q for q in filtered_questions if q.get("priority", "medium") == "high"]
+        priority_order = {"high": 0, "medium": 1, "low": 2}
+        filtered_questions.sort(
+            key=lambda q: priority_order.get(q.get("priority", "medium"), 1)
+        )
+
+        high_only = [
+            q for q in filtered_questions if q.get("priority", "medium") == "high"
+        ]
         if high_only:
             selected = high_only[:2]
         else:
@@ -403,15 +430,16 @@ If no questions are needed (all information is clear, in knowledge base, or any 
             len(rag_filtered_questions),
             len(selected),
         )
-        
+
         return selected
-        
+
     except Exception as e:
         logger.error("Question generation failed: %s", e)
         logger.exception("Full traceback:")
         return []
 
-#function to analyze all solution requirements and produce questions and rag contexts
+
+# function to analyze all solution requirements and produce questions and rag contexts
 def analyze_build_query_for_questions(
     build_query: BuildQuery,
     requirements_result: RequirementsResult,
@@ -420,21 +448,23 @@ def analyze_build_query_for_questions(
     rag_system: Optional[RAGSystem] = None,
 ) -> tuple[List[Dict[str, Any]], Dict[str, str]]:
     logger.info("Analyzing requirements individually for information gaps")
-    
+
     known_info_text = company_kb.format_for_prompt()
-    
+
     all_questions: List[Dict[str, Any]] = []
     rag_contexts_by_req: Dict[str, str] = {}
-    
+
     for req in requirements_result.solution_requirements:
         logger.info("Analyzing requirement %s for information gaps", req.id)
-        
-        other_reqs_text = "\n".join([
-            f"[{r.id}] {r.source_text}"
-            for r in requirements_result.solution_requirements
-            if r.id != req.id
-        ])
-        
+
+        other_reqs_text = "\n".join(
+            [
+                f"[{r.id}] {r.source_text}"
+                for r in requirements_result.solution_requirements
+                if r.id != req.id
+            ]
+        )
+
         rag_context = _build_rag_context_for_requirement(req, rag_system)
         if rag_context:
             rag_contexts_by_req[req.id] = rag_context
@@ -485,7 +515,7 @@ Return an EMPTY ARRAY [] if:
 - The requirement is straightforward and doesn't require specific vendor commitments
 - You're unsure if a question is truly critical
 """
-        
+
         try:
             response = chat_completion(
                 model=QUESTION_MODEL,
@@ -496,7 +526,7 @@ Return an EMPTY ARRAY [] if:
                 temperature=0.0,
                 max_tokens=1500,
             )
-            
+
             questions = []
             try:
                 response_text = response.strip()
@@ -507,17 +537,19 @@ Return an EMPTY ARRAY [] if:
                 if response_text.endswith("```"):
                     response_text = response_text[:-3]
                 response_text = response_text.strip()
-                
+
                 parsed = json.loads(response_text)
                 if isinstance(parsed, list):
                     questions = parsed
                 elif isinstance(parsed, dict) and "questions" in parsed:
                     questions = parsed["questions"]
             except json.JSONDecodeError as e:
-                logger.warning("Failed to parse questions JSON for requirement %s: %s", req.id, e)
+                logger.warning(
+                    "Failed to parse questions JSON for requirement %s: %s", req.id, e
+                )
                 logger.debug("Response was: %s", response[:500])
                 continue
-            
+
             for q in questions:
                 if isinstance(q, dict) and "question_text" in q:
                     q_text = q.get("question_text", "")
@@ -537,26 +569,30 @@ Return an EMPTY ARRAY [] if:
                     }
                     if validated_q["question_text"]:
                         all_questions.append(validated_q)
-            
-            req_questions = [q for q in all_questions if q.get("requirement_id") == req.id]
+
+            req_questions = [
+                q for q in all_questions if q.get("requirement_id") == req.id
+            ]
             if len(req_questions) > max_questions_per_requirement:
                 priority_order = {"high": 0, "medium": 1, "low": 2}
-                req_questions.sort(key=lambda q: priority_order.get(q.get("priority", "medium"), 1))
+                req_questions.sort(
+                    key=lambda q: priority_order.get(q.get("priority", "medium"), 1)
+                )
                 excess = req_questions[max_questions_per_requirement:]
                 for ex_q in excess:
                     all_questions.remove(ex_q)
-            
+
             logger.info(
                 "Generated %d questions for requirement %s",
                 len([q for q in all_questions if q.get("requirement_id") == req.id]),
                 req.id,
             )
-            
+
         except Exception as e:
             logger.error("Question generation failed for requirement %s: %s", req.id, e)
             logger.exception("Full traceback:")
             continue
-    
+
     filtered_questions = []
     known_topics = company_kb.get_all_known_topics()
     for q in all_questions:
@@ -570,15 +606,17 @@ Return an EMPTY ARRAY [] if:
                     break
         if not should_skip:
             filtered_questions.append(q)
-    
+
     priority_order = {"high": 0, "medium": 1, "low": 2}
-    filtered_questions.sort(key=lambda q: (
-        priority_order.get(q.get("priority", "medium"), 1),
-        q.get("requirement_id", ""),
-    ))
-    
+    filtered_questions.sort(
+        key=lambda q: (
+            priority_order.get(q.get("priority", "medium"), 1),
+            q.get("requirement_id", ""),
+        )
+    )
+
     critical_questions = [q for q in filtered_questions if q.get("priority") == "high"]
-    
+
     logger.info(
         "Generated %d CRITICAL questions from %d requirements (filtered %d total, %d high priority)",
         len(critical_questions),
@@ -586,15 +624,18 @@ Return an EMPTY ARRAY [] if:
         len(all_questions),
         len(critical_questions),
     )
-    
+
     if len(critical_questions) > MAX_CRITICAL_QUESTIONS:
-        critical_questions = _consolidate_critical_questions(critical_questions, company_kb, max_questions=MAX_CRITICAL_QUESTIONS)
-    
+        critical_questions = _consolidate_critical_questions(
+            critical_questions, company_kb, max_questions=MAX_CRITICAL_QUESTIONS
+        )
+
     critical_questions = critical_questions[:MAX_CRITICAL_QUESTIONS]
-    
+
     return critical_questions, rag_contexts_by_req
 
-#function to consolidate and select the most critical questions from a list
+
+# function to consolidate and select the most critical questions from a list
 def _consolidate_critical_questions(
     questions: List[Dict[str, Any]],
     company_kb: CompanyKnowledgeBase,
@@ -602,14 +643,20 @@ def _consolidate_critical_questions(
 ) -> List[Dict[str, Any]]:
     if len(questions) <= max_questions:
         return questions
-    
-    logger.info("Consolidating %d critical questions down to max %d", len(questions), max_questions)
-    
-    questions_text = "\n".join([
-        f"{i+1}. [{q.get('requirement_id', 'unknown')}] {q['question_text']}"
-        for i, q in enumerate(questions)
-    ])
-    
+
+    logger.info(
+        "Consolidating %d critical questions down to max %d",
+        len(questions),
+        max_questions,
+    )
+
+    questions_text = "\n".join(
+        [
+            f"{i+1}. [{q.get('requirement_id', 'unknown')}] {q['question_text']}"
+            for i, q in enumerate(questions)
+        ]
+    )
+
     user_prompt = f"""You have {len(questions)} questions to ask a vendor about their RFP response. This is too many.
 
 QUESTIONS:
@@ -632,40 +679,46 @@ Only output the JSON array, nothing else.
         response = chat_completion(
             model=QUESTION_MODEL,
             messages=[
-                {"role": "system", "content": "You select the most critical questions from a list. Be very selective."},
+                {
+                    "role": "system",
+                    "content": "You select the most critical questions from a list. Be very selective.",
+                },
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.0,
             max_tokens=200,
         )
-        
+
         cleaned = response.replace("```json", "").replace("```", "").strip()
         selected_indices = json.loads(cleaned)
-        
+
         if isinstance(selected_indices, list):
             result = []
             for idx in selected_indices[:max_questions]:
                 if isinstance(idx, int) and 1 <= idx <= len(questions):
                     result.append(questions[idx - 1])
-            
+
             logger.info("Consolidated to %d critical questions", len(result))
             return result if result else questions[:max_questions]
-        
+
     except Exception as e:
-        logger.warning("Failed to consolidate questions: %s, returning first %d", e, max_questions)
-    
+        logger.warning(
+            "Failed to consolidate questions: %s, returning first %d", e, max_questions
+        )
+
     return questions[:max_questions]
 
-#function (legacy) to derive questions from a whole build query rather than per-requirement
+
+# function (legacy) to derive questions from a whole build query rather than per-requirement
 def analyze_build_query_for_questions_legacy(
     build_query: BuildQuery,
     company_kb: CompanyKnowledgeBase,
     max_questions: int = 20,
 ) -> List[Dict[str, Any]]:
     logger.info("Analyzing build query as whole (legacy mode)")
-    
+
     known_info_text = company_kb.format_for_prompt()
-    
+
     user_prompt = f"""Analyze this RFP build query and identify what information is MISSING or UNCLEAR that would be needed to generate a high-quality response.
 
 BUILD QUERY:
@@ -686,7 +739,7 @@ Output a JSON array of questions, each with:
 - category: Type (technical, business, implementation, commercial, etc.)
 - priority: "high", "medium", or "low"
 """
-    
+
     try:
         response = chat_completion(
             model=QUESTION_MODEL,
@@ -697,7 +750,7 @@ Output a JSON array of questions, each with:
             temperature=0.0,
             max_tokens=2000,
         )
-        
+
         questions = []
         try:
             response_text = response.strip()
@@ -708,7 +761,7 @@ Output a JSON array of questions, each with:
             if response_text.endswith("```"):
                 response_text = response_text[:-3]
             response_text = response_text.strip()
-            
+
             parsed = json.loads(response_text)
             if isinstance(parsed, list):
                 questions = parsed
@@ -717,7 +770,7 @@ Output a JSON array of questions, each with:
         except json.JSONDecodeError as e:
             logger.warning("Failed to parse questions JSON: %s", e)
             return []
-        
+
         validated_questions = []
         for q in questions:
             if isinstance(q, dict) and "question_text" in q:
@@ -729,7 +782,7 @@ Output a JSON array of questions, each with:
                 }
                 if validated_q["question_text"]:
                     validated_questions.append(validated_q)
-        
+
         filtered_questions = []
         known_topics = company_kb.get_all_known_topics()
         for q in validated_questions:
@@ -742,20 +795,26 @@ Output a JSON array of questions, each with:
                         break
             if not should_skip:
                 filtered_questions.append(q)
-        
+
         priority_order = {"high": 0, "medium": 1, "low": 2}
-        filtered_questions.sort(key=lambda q: priority_order.get(q.get("priority", "medium"), 1))
+        filtered_questions.sort(
+            key=lambda q: priority_order.get(q.get("priority", "medium"), 1)
+        )
         filtered_questions = filtered_questions[:max_questions]
-        
-        logger.info("Generated %d questions from build query (legacy mode)", len(filtered_questions))
+
+        logger.info(
+            "Generated %d questions from build query (legacy mode)",
+            len(filtered_questions),
+        )
         return filtered_questions
-        
+
     except Exception as e:
         logger.error("Question generation from build query failed: %s", e)
         logger.exception("Full traceback:")
         return []
 
-#function to generate questions for multiple requirements and return mapping by requirement id
+
+# function to generate questions for multiple requirements and return mapping by requirement id
 def analyze_requirements_for_questions(
     requirements: List[RequirementItem],
     company_kb: CompanyKnowledgeBase,
@@ -763,22 +822,25 @@ def analyze_requirements_for_questions(
     rag_system: Optional[RAGSystem] = None,
 ) -> Dict[str, List[Dict[str, Any]]]:
     all_questions = {}
-    
+
     for req in requirements:
-        questions = generate_questions(req, requirements, company_kb, rag_system=rag_system)
+        questions = generate_questions(
+            req, requirements, company_kb, rag_system=rag_system
+        )
         questions = questions[:max_questions_per_requirement]
         all_questions[req.id] = questions
-    
+
     total_questions = sum(len(qs) for qs in all_questions.values())
     logger.info(
         "Analyzed %d requirements, generated %d total questions",
         len(requirements),
         total_questions,
     )
-    
+
     return all_questions
 
-#function to infer which other pending questions are answered by a given answer
+
+# function to infer which other pending questions are answered by a given answer
 def infer_answered_questions_from_answer(
     answered_question: Question,
     answer_text: str,
@@ -794,8 +856,7 @@ def infer_answered_questions_from_answer(
     )
 
     remaining_block = "\n".join(
-        f"- ID: {q.question_id}\n  Text: {q.question_text}"
-        for q in remaining_questions
+        f"- ID: {q.question_id}\n  Text: {q.question_text}" for q in remaining_questions
     )
 
     system_prompt = (
@@ -863,7 +924,8 @@ REMAINING OPEN QUESTIONS:
 
         if not isinstance(result, list):
             logger.warning(
-                "Inferred answered questions result was not a list, got %s", type(result)
+                "Inferred answered questions result was not a list, got %s",
+                type(result),
             )
             return []
 
@@ -881,4 +943,3 @@ REMAINING OPEN QUESTIONS:
         logger.error("Inference of additionally answered questions failed: %s", e)
         logger.exception("Full traceback:")
         return []
-

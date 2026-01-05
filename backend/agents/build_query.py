@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 @functools.lru_cache(maxsize=256)
-#function to construct a BuildQuery for a single requirement (cached)
+# function to construct a BuildQuery for a single requirement (cached)
 def _build_query_for_single_requirement_cached(
     extraction_json: str,
     requirement_json: str,
@@ -26,7 +26,7 @@ def _build_query_for_single_requirement_cached(
     all_response_structure_requirements = [
         RequirementItem(**r) for r in json.loads(response_structure_json)
     ]
-    
+
     logger.info("Building query for single requirement: %s", single_requirement.id)
 
     solution_summary = single_requirement.source_text
@@ -35,7 +35,11 @@ def _build_query_for_single_requirement_cached(
     for req in all_response_structure_requirements:
         response_parts.append(req.source_text)
 
-    response_structure_summary = "\n\n".join(response_parts) if response_parts else "No response structure requirements found."
+    response_structure_summary = (
+        "\n\n".join(response_parts)
+        if response_parts
+        else "No response structure requirements found."
+    )
 
     extraction_data = {
         "language": extraction_result.language,
@@ -59,7 +63,11 @@ def _build_query_for_single_requirement_cached(
         f"Language: {extraction_result.language}",
         "",
         "KEY REQUIREMENTS SUMMARY:",
-        extraction_result.key_requirements_summary if extraction_result.key_requirements_summary else "None",
+        (
+            extraction_result.key_requirements_summary
+            if extraction_result.key_requirements_summary
+            else "None"
+        ),
     ]
 
     query_text = "\n".join(query_parts)
@@ -78,7 +86,8 @@ def _build_query_for_single_requirement_cached(
         confirmed=False,
     )
 
-#function to prepare a BuildQuery object for a single requirement (wrapper with caching)
+
+# function to prepare a BuildQuery object for a single requirement (wrapper with caching)
 def build_query_for_single_requirement(
     extraction_result: ExtractionResult,
     single_requirement: RequirementItem,
@@ -87,10 +96,9 @@ def build_query_for_single_requirement(
     extraction_json = json.dumps(extraction_result.model_dump(), sort_keys=True)
     requirement_json = json.dumps(single_requirement.model_dump(), sort_keys=True)
     response_structure_json = json.dumps(
-        [r.model_dump() for r in all_response_structure_requirements],
-        sort_keys=True
+        [r.model_dump() for r in all_response_structure_requirements], sort_keys=True
     )
-    
+
     cache_info = _build_query_for_single_requirement_cached.cache_info()
     logger.info(
         "Build query (single): starting (cache_hits=%d, cache_misses=%d, cache_size=%d/%d)",
@@ -99,22 +107,23 @@ def build_query_for_single_requirement(
         cache_info.currsize,
         cache_info.maxsize,
     )
-    
+
     result = _build_query_for_single_requirement_cached(
         extraction_json,
         requirement_json,
         response_structure_json,
     )
-    
+
     new_cache_info = _build_query_for_single_requirement_cached.cache_info()
     if new_cache_info.hits > cache_info.hits:
         logger.info("Build query (single): cache HIT - returned cached result")
     else:
         logger.info("Build query (single): cache MISS - processed new request")
-    
+
     return result
 
-#function to build a full BuildQuery from extraction and requirements (cached)
+
+# function to build a full BuildQuery from extraction and requirements (cached)
 @functools.lru_cache(maxsize=128)
 def _build_query_cached(
     extraction_json: str,
@@ -122,20 +131,28 @@ def _build_query_cached(
 ) -> BuildQuery:
     extraction_result = ExtractionResult(**json.loads(extraction_json))
     requirements_result = RequirementsResult(**json.loads(requirements_json))
-    
+
     logger.info("Building query from extraction and requirements data")
 
     solution_parts = []
     for req in requirements_result.solution_requirements:
         solution_parts.append(f"[{req.id}] {req.source_text}")
 
-    solution_summary = "\n".join(solution_parts) if solution_parts else "No solution requirements found."
+    solution_summary = (
+        "\n".join(solution_parts)
+        if solution_parts
+        else "No solution requirements found."
+    )
 
     response_parts = []
     for req in requirements_result.response_structure_requirements:
         response_parts.append(f"[{req.id}] {req.source_text}")
 
-    response_structure_summary = "\n".join(response_parts) if response_parts else "No response structure requirements found."
+    response_structure_summary = (
+        "\n".join(response_parts)
+        if response_parts
+        else "No response structure requirements found."
+    )
 
     extraction_data = {
         "language": extraction_result.language,
@@ -159,7 +176,11 @@ def _build_query_cached(
         f"Language: {extraction_result.language}",
         "",
         "KEY REQUIREMENTS SUMMARY:",
-        extraction_result.key_requirements_summary if extraction_result.key_requirements_summary else "None",
+        (
+            extraction_result.key_requirements_summary
+            if extraction_result.key_requirements_summary
+            else "None"
+        ),
     ]
 
     query_text = "\n".join(query_parts)
@@ -178,14 +199,15 @@ def _build_query_cached(
         confirmed=False,
     )
 
-#function to build the overall BuildQuery (wrapper that uses cached builder)
+
+# function to build the overall BuildQuery (wrapper that uses cached builder)
 def build_query(
     extraction_result: ExtractionResult,
     requirements_result: RequirementsResult,
 ) -> BuildQuery:
     extraction_json = json.dumps(extraction_result.model_dump(), sort_keys=True)
     requirements_json = json.dumps(requirements_result.model_dump(), sort_keys=True)
-    
+
     cache_info = _build_query_cached.cache_info()
     logger.info(
         "Build query: starting (cache_hits=%d, cache_misses=%d, cache_size=%d/%d)",
@@ -194,14 +216,13 @@ def build_query(
         cache_info.currsize,
         cache_info.maxsize,
     )
-    
+
     result = _build_query_cached(extraction_json, requirements_json)
-    
+
     new_cache_info = _build_query_cached.cache_info()
     if new_cache_info.hits > cache_info.hits:
         logger.info("Build query: cache HIT - returned cached result")
     else:
         logger.info("Build query: cache MISS - processed new request")
-    
-    return result
 
+    return result

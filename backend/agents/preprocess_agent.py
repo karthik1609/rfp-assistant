@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 @functools.lru_cache(maxsize=256)
-#function to run the preprocess agent with an LRU cache
+# function to run the preprocess agent with an LRU cache
 def _run_preprocess_agent_cached(document_text: str) -> PreprocessResult:
     logger.info(
         "Preprocess agent: starting (input_chars=%d)",
@@ -51,23 +51,22 @@ def _run_preprocess_agent_cached(document_text: str) -> PreprocessResult:
         max_tokens=max_output_tokens,
     )
 
-    #function to safely parse JSON returned by the LLM
+    # function to safely parse JSON returned by the LLM
     def _parse_json_safely(raw: str) -> Dict[str, Any]:
-        cleaned = (
-            raw.replace("```json", "")
-            .replace("```", "")
-            .strip()
-        )
+        cleaned = raw.replace("```json", "").replace("```", "").strip()
         match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
         if match:
             cleaned = match.group(0)
-        cleaned = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]', '', cleaned)
+        cleaned = re.sub(r"[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f-\x9f]", "", cleaned)
         cleaned = re.sub(r",\s*([}\]])", r"\\1", cleaned)
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError as e:
             logger.error("Preprocess agent: failed to parse JSON: %s", str(e))
-            logger.debug("Preprocess agent: problematic JSON (first 1500 chars):\n%s", cleaned[:1500])
+            logger.debug(
+                "Preprocess agent: problematic JSON (first 1500 chars):\n%s",
+                cleaned[:1500],
+            )
             raise
 
     data = _parse_json_safely(content)
@@ -102,7 +101,8 @@ def _run_preprocess_agent_cached(document_text: str) -> PreprocessResult:
     )
     return result
 
-#function to run the preprocess agent and log cache status
+
+# function to run the preprocess agent and log cache status
 def run_preprocess_agent(document_text: str) -> PreprocessResult:
     cache_info = _run_preprocess_agent_cached.cache_info()
     logger.info(
@@ -121,4 +121,3 @@ def run_preprocess_agent(document_text: str) -> PreprocessResult:
         logger.info("Preprocess agent: cache MISS - processed new request")
 
     return result
-

@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import hashlib
@@ -21,10 +20,13 @@ logger = logging.getLogger(__name__)
 
 try:
     from backend.storage.azure_blob import AzureBlobStorage
+
     AZURE_BLOB_AVAILABLE = True
 except ImportError:
     AZURE_BLOB_AVAILABLE = False
-    logger.warning("Azure Blob Storage not available. Install azure-storage-blob to enable.")
+    logger.warning(
+        "Azure Blob Storage not available. Install azure-storage-blob to enable."
+    )
 
 load_dotenv()
 
@@ -34,9 +36,10 @@ EMBEDDING_DIMENSION = 3072
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
+
 class RAGSystem:
 
-    #function to initialize RAG system, index paths, and optional Azure storage
+    # function to initialize RAG system, index paths, and optional Azure storage
     def __init__(
         self,
         docs_folder: str = "docs",
@@ -52,7 +55,7 @@ class RAGSystem:
         self.metadata: List[Dict[str, Any]] = []
         self.client = None
         self._query_embedding_cache: Dict[str, np.ndarray] = {}
-        
+
         self.azure_blob: Optional[AzureBlobStorage] = None
         if use_azure_blob and AZURE_BLOB_AVAILABLE:
             try:
@@ -60,34 +63,39 @@ class RAGSystem:
                 if self.azure_blob.is_available():
                     logger.info("Azure Blob Storage enabled for RAG index storage")
                 else:
-                    logger.warning("Azure Blob Storage not configured (connection string missing)")
+                    logger.warning(
+                        "Azure Blob Storage not configured (connection string missing)"
+                    )
                     self.azure_blob = None
             except Exception as e:
                 logger.warning("Failed to initialize Azure Blob Storage: %s", str(e))
                 self.azure_blob = None
-        
+
         self._load_query_cache()
         logger.info(
             "RAGSystem initialized (docs_folder=%s, index_path=%s, query_cache_size=%d, azure_blob=%s)",
             self.docs_folder,
             self.index_path,
             len(self._query_embedding_cache),
-            "enabled" if self.azure_blob and self.azure_blob.is_available() else "disabled",
+            (
+                "enabled"
+                if self.azure_blob and self.azure_blob.is_available()
+                else "disabled"
+            ),
         )
 
-    #function to compute a stable hash for a query string
+    # function to compute a stable hash for a query string
     def _get_query_hash(self, query: str) -> str:
-        return hashlib.sha256(query.encode('utf-8')).hexdigest()
+        return hashlib.sha256(query.encode("utf-8")).hexdigest()
 
-    #function to load cached query embeddings from disk if available
+    # function to load cached query embeddings from disk if available
     def _load_query_cache(self) -> None:
         if self.query_cache_path and self.query_cache_path.exists():
             try:
                 with open(self.query_cache_path, "rb") as f:
                     cache_data = pickle.load(f)
                     self._query_embedding_cache = {
-                        k: np.array(v, dtype=np.float32) 
-                        for k, v in cache_data.items()
+                        k: np.array(v, dtype=np.float32) for k, v in cache_data.items()
                     }
                 logger.info(
                     "Loaded query embedding cache: %d entries from %s",
@@ -98,50 +106,58 @@ class RAGSystem:
                 logger.warning("Failed to load query cache: %s", e)
                 self._query_embedding_cache = {}
 
-    #function to save query embedding cache to disk
+    # function to save query embedding cache to disk
     def _save_query_cache(self) -> None:
         if self.query_cache_path:
             try:
                 self.query_cache_path.parent.mkdir(parents=True, exist_ok=True)
                 cache_data = {
-                    k: v.tolist() 
-                    for k, v in self._query_embedding_cache.items()
+                    k: v.tolist() for k, v in self._query_embedding_cache.items()
                 }
                 with open(self.query_cache_path, "wb") as f:
                     pickle.dump(cache_data, f)
-                logger.debug("Saved query embedding cache: %d entries", len(self._query_embedding_cache))
+                logger.debug(
+                    "Saved query embedding cache: %d entries",
+                    len(self._query_embedding_cache),
+                )
             except Exception as e:
                 logger.warning("Failed to save query cache: %s", e)
 
-    #function to obtain or create the embedding client (Azure/OpenAI)
+    # function to obtain or create the embedding client (Azure/OpenAI)
     def _get_embedding_client(self):
         if self.client is None:
             embedding_api_key = os.environ.get("AZURE_OPENAI_EMBEDDING_API_KEY")
             embedding_endpoint = os.environ.get("AZURE_OPENAI_EMBEDDING_ENDPOINT")
             embedding_api_version = os.environ.get("AZURE_OPENAI_EMBEDDING_API_VERSION")
-            
+
             if embedding_api_key and embedding_endpoint:
                 logger.info("Using separate Azure OpenAI configuration for embeddings")
                 from openai import AzureOpenAI
+
                 self.client = AzureOpenAI(
                     api_key=embedding_api_key,
                     azure_endpoint=embedding_endpoint,
-                    api_version=embedding_api_version or os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+                    api_version=embedding_api_version
+                    or os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
                     timeout=REQUEST_TIMEOUT,
                 )
             else:
-                logger.info("Using main Azure OpenAI configuration for embeddings (no separate embedding config found)")
+                logger.info(
+                    "Using main Azure OpenAI configuration for embeddings (no separate embedding config found)"
+                )
                 self.client = get_azure_client()
         return self.client
 
-    #function to generate embeddings for a list of texts (batch with fallback)
+    # function to generate embeddings for a list of texts (batch with fallback)
     def _generate_embeddings(self, texts: List[str]) -> np.ndarray:
         client = self._get_embedding_client()
-        embedding_deployment = os.environ.get("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", EMBEDDING_MODEL)
-        
+        embedding_deployment = os.environ.get(
+            "AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME", EMBEDDING_MODEL
+        )
+
         total_chars = sum(len(text) for text in texts)
         avg_text_length = total_chars / len(texts) if texts else 0
-        
+
         logger.info(
             "Generating embeddings: %d texts, %d total chars, avg %d chars/text",
             len(texts),
@@ -171,20 +187,31 @@ class RAGSystem:
             )
             return embeddings_array
         except Exception:
-            logger.exception("Batch embedding request failed, falling back to per-text embedding requests")
+            logger.exception(
+                "Batch embedding request failed, falling back to per-text embedding requests"
+            )
 
         embeddings = []
         start_time = time.time()
         for i, text in enumerate(texts):
             try:
-                logger.debug("Generating embedding %d/%d: text_length=%d chars", i + 1, len(texts), len(text))
-                response = client.embeddings.create(model=embedding_deployment, input=text)
+                logger.debug(
+                    "Generating embedding %d/%d: text_length=%d chars",
+                    i + 1,
+                    len(texts),
+                    len(text),
+                )
+                response = client.embeddings.create(
+                    model=embedding_deployment, input=text
+                )
                 embedding = response.data[0].embedding
                 embeddings.append(embedding)
             except Exception as e:
                 logger.error(
                     "Failed to generate embedding for text %d (length: %d chars): %s",
-                    i, len(text) if text else 0, str(e)
+                    i,
+                    len(text) if text else 0,
+                    str(e),
                 )
                 embeddings.append([0.0] * EMBEDDING_DIMENSION)
 
@@ -198,11 +225,18 @@ class RAGSystem:
         )
         return embeddings_array
 
-    #function to split long text into overlapping chunks for indexing
-    def _chunk_text(self, text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
+    # function to split long text into overlapping chunks for indexing
+    def _chunk_text(
+        self, text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP
+    ) -> List[str]:
         text_length = len(text)
-        logger.info("Chunking text: length=%d chars, chunk_size=%d, overlap=%d", text_length, chunk_size, overlap)
-        
+        logger.info(
+            "Chunking text: length=%d chars, chunk_size=%d, overlap=%d",
+            text_length,
+            chunk_size,
+            overlap,
+        )
+
         if text_length <= chunk_size:
             logger.debug("Text is shorter than chunk_size, returning as single chunk")
             return [text]
@@ -210,44 +244,56 @@ class RAGSystem:
         chunks = []
         start = 0
         chunk_num = 0
-        
+
         while start < text_length:
             chunk_num += 1
             end = min(start + chunk_size, text_length)
             chunk = text[start:end]
             chunk_length = len(chunk)
-            
+
             chunks.append(chunk)
             logger.debug(
                 "Chunk %d: start=%d, end=%d, length=%d chars (%.1f%% of chunk_size)",
-                chunk_num, start, end, chunk_length, (chunk_length / chunk_size * 100)
+                chunk_num,
+                start,
+                end,
+                chunk_length,
+                (chunk_length / chunk_size * 100),
             )
-            
+
             next_start = end - overlap
             if next_start <= start:
-                logger.warning("Overlap is too large (%d), adjusting to prevent infinite loop", overlap)
+                logger.warning(
+                    "Overlap is too large (%d), adjusting to prevent infinite loop",
+                    overlap,
+                )
                 next_start = start + 1
-            
+
             if next_start >= text_length:
                 logger.debug("Reached end of text at position %d", next_start)
                 break
-                
+
             start = next_start
-        
+
         logger.info(
             "Chunking complete: created %d chunks from %d chars (avg chunk size: %d chars, overlap: %d chars)",
-            len(chunks), text_length, text_length // len(chunks) if chunks else 0, overlap
+            len(chunks),
+            text_length,
+            text_length // len(chunks) if chunks else 0,
+            overlap,
         )
-        
+
         return chunks
 
-    #function to load document content (txt/pdf/docx) and extract text
+    # function to load document content (txt/pdf/docx) and extract text
     def _load_document(self, file_path: Path) -> str:
         suffix = file_path.suffix.lower()
         file_size = file_path.stat().st_size if file_path.exists() else 0
         logger.info(
             "Loading document: %s (type: %s, size: %d bytes)",
-            file_path.name, suffix, file_size
+            file_path.name,
+            suffix,
+            file_size,
         )
 
         try:
@@ -256,9 +302,16 @@ class RAGSystem:
                 logger.info("Loaded TXT file: %d characters extracted", len(text))
                 return text
             elif suffix in {".pdf", ".docx", ".doc"}:
-                logger.debug("Extracting text from %s file using text extraction pipeline", suffix.upper())
+                logger.debug(
+                    "Extracting text from %s file using text extraction pipeline",
+                    suffix.upper(),
+                )
                 text = extract_text_from_file(file_path)
-                logger.info("Extracted text from %s file: %d characters", suffix.upper(), len(text))
+                logger.info(
+                    "Extracted text from %s file: %d characters",
+                    suffix.upper(),
+                    len(text),
+                )
                 return text
             else:
                 raise ValueError(f"Unsupported file type: {suffix}")
@@ -266,12 +319,15 @@ class RAGSystem:
             logger.error("Failed to load document %s: %s", file_path, str(e))
             raise
 
-    #function to compute a manifest (size/mtime) for files under docs folder
+    # function to compute a manifest (size/mtime) for files under docs folder
     def _compute_docs_manifest(self) -> Dict[str, Dict[str, Any]]:
         manifest: Dict[str, Dict[str, Any]] = {}
 
         if not self.docs_folder.exists():
-            logger.warning("Docs folder does not exist when computing manifest: %s", self.docs_folder)
+            logger.warning(
+                "Docs folder does not exist when computing manifest: %s",
+                self.docs_folder,
+            )
             return manifest
 
         for ext in [".pdf", ".docx", ".doc", ".txt"]:
@@ -284,7 +340,9 @@ class RAGSystem:
                         "mtime": stat.st_mtime,
                     }
                 except Exception as e:
-                    logger.warning("Failed to stat file %s for manifest: %s", file_path, str(e))
+                    logger.warning(
+                        "Failed to stat file %s for manifest: %s", file_path, str(e)
+                    )
 
         logger.info(
             "Computed docs manifest for %d file(s) in %s",
@@ -293,7 +351,7 @@ class RAGSystem:
         )
         return manifest
 
-    #function to build a FAISS index from documents under the docs folder
+    # function to build a FAISS index from documents under the docs folder
     def build_index(self) -> None:
         if not self.docs_folder.exists():
             raise ValueError(f"Docs folder does not exist: {self.docs_folder}")
@@ -303,26 +361,39 @@ class RAGSystem:
 
         documents: List[Tuple[Path, str]] = []
         total_files_found = 0
-        
+
         for ext in [".pdf", ".docx", ".doc", ".txt"]:
             files = list(self.docs_folder.glob(f"**/*{ext}"))
             total_files_found += len(files)
             logger.info("Found %d %s files", len(files), ext.upper())
-            
+
             for file_path in files:
                 try:
                     text = self._load_document(file_path)
                     if text.strip():
                         documents.append((file_path, text))
-                        logger.info("Successfully loaded document: %s (%d chars)", file_path.name, len(text))
+                        logger.info(
+                            "Successfully loaded document: %s (%d chars)",
+                            file_path.name,
+                            len(text),
+                        )
                     else:
-                        logger.warning("Document %s is empty or contains only whitespace", file_path.name)
+                        logger.warning(
+                            "Document %s is empty or contains only whitespace",
+                            file_path.name,
+                        )
                 except Exception as e:
-                    logger.error("Failed to load document %s: %s", file_path, str(e), exc_info=True)
-        
+                    logger.error(
+                        "Failed to load document %s: %s",
+                        file_path,
+                        str(e),
+                        exc_info=True,
+                    )
+
         logger.info(
             "Document loading complete: %d files found, %d successfully loaded",
-            total_files_found, len(documents)
+            total_files_found,
+            len(documents),
         )
 
         if not documents:
@@ -330,7 +401,7 @@ class RAGSystem:
 
         logger.info("Starting chunking process for %d documents", len(documents))
         chunking_start_time = time.time()
-        
+
         all_chunks: List[str] = []
         self.metadata = []
 
@@ -339,28 +410,37 @@ class RAGSystem:
             chunks = self._chunk_text(text)
             logger.info(
                 "Document %s: created %d chunks (avg %d chars per chunk)",
-                file_path.name, len(chunks), len(text) // len(chunks) if chunks else 0
+                file_path.name,
+                len(chunks),
+                len(text) // len(chunks) if chunks else 0,
             )
-            
+
             for chunk_idx, chunk in enumerate(chunks):
                 all_chunks.append(chunk)
-                self.metadata.append({
-                    "file_path": str(file_path),
-                    "file_name": file_path.name,
-                    "chunk_index": chunk_idx,
-                    "total_chunks": len(chunks),
-                    "chunk_text": chunk,
-                })
+                self.metadata.append(
+                    {
+                        "file_path": str(file_path),
+                        "file_name": file_path.name,
+                        "chunk_index": chunk_idx,
+                        "total_chunks": len(chunks),
+                        "chunk_text": chunk,
+                    }
+                )
                 logger.debug(
                     "Added chunk %d/%d from %s (length: %d chars)",
-                    chunk_idx + 1, len(chunks), file_path.name, len(chunk)
+                    chunk_idx + 1,
+                    len(chunks),
+                    file_path.name,
+                    len(chunk),
                 )
 
         chunking_elapsed = time.time() - chunking_start_time
         logger.info(
             "Chunking complete: created %d chunks from %d documents in %.2fs (avg %.2f chunks/doc)",
-            len(all_chunks), len(documents), chunking_elapsed,
-            len(all_chunks) / len(documents) if documents else 0
+            len(all_chunks),
+            len(documents),
+            chunking_elapsed,
+            len(all_chunks) / len(documents) if documents else 0,
         )
 
         embeddings = self._generate_embeddings(all_chunks)
@@ -372,22 +452,27 @@ class RAGSystem:
         self.index = faiss.IndexFlatL2(dimension)
         self.index.add(embeddings)
         index_elapsed = time.time() - index_start_time
-        
+
         logger.info(
             "FAISS index created: %d vectors, dimension=%d, elapsed=%.2fs",
-            self.index.ntotal, dimension, index_elapsed
+            self.index.ntotal,
+            dimension,
+            index_elapsed,
         )
-        
+
         total_elapsed = time.time() - build_start_time
         logger.info(
             "RAG index build complete: %d documents, %d chunks, %d vectors, total time=%.2fs",
-            len(documents), len(all_chunks), self.index.ntotal, total_elapsed
+            len(documents),
+            len(all_chunks),
+            self.index.ntotal,
+            total_elapsed,
         )
 
         if self.index_path:
             self.save_index()
 
-    #function to derive blob names for index, metadata and manifest
+    # function to derive blob names for index, metadata and manifest
     def _get_blob_names(self) -> Tuple[str, str, str]:
         if self.index_path:
             base_name = self.index_path.name
@@ -399,7 +484,7 @@ class RAGSystem:
             f"{base_name}.docs_manifest.pkl",
         )
 
-    #function to save FAISS index, metadata and manifest locally and optionally to Azure
+    # function to save FAISS index, metadata and manifest locally and optionally to Azure
     def save_index(self) -> None:
         if self.index_path is None:
             raise ValueError("index_path not set, cannot save index")
@@ -429,8 +514,10 @@ class RAGSystem:
 
         if self.azure_blob and self.azure_blob.is_available():
             try:
-                index_blob_name, metadata_blob_name, manifest_blob_name = self._get_blob_names()
-                
+                index_blob_name, metadata_blob_name, manifest_blob_name = (
+                    self._get_blob_names()
+                )
+
                 if index_file_path.exists():
                     success = self.azure_blob.upload_file(
                         blob_name=index_blob_name,
@@ -438,10 +525,12 @@ class RAGSystem:
                         overwrite=True,
                     )
                     if success:
-                        logger.info("Uploaded index to Azure Blob Storage: %s", index_blob_name)
+                        logger.info(
+                            "Uploaded index to Azure Blob Storage: %s", index_blob_name
+                        )
                     else:
                         logger.warning("Failed to upload index to Azure Blob Storage")
-                
+
                 if metadata_path.exists():
                     success = self.azure_blob.upload_file(
                         blob_name=metadata_blob_name,
@@ -449,9 +538,14 @@ class RAGSystem:
                         overwrite=True,
                     )
                     if success:
-                        logger.info("Uploaded metadata to Azure Blob Storage: %s", metadata_blob_name)
+                        logger.info(
+                            "Uploaded metadata to Azure Blob Storage: %s",
+                            metadata_blob_name,
+                        )
                     else:
-                        logger.warning("Failed to upload metadata to Azure Blob Storage")
+                        logger.warning(
+                            "Failed to upload metadata to Azure Blob Storage"
+                        )
 
                 if manifest_path.exists():
                     success = self.azure_blob.upload_file(
@@ -460,13 +554,18 @@ class RAGSystem:
                         overwrite=True,
                     )
                     if success:
-                        logger.info("Uploaded docs manifest to Azure Blob Storage: %s", manifest_blob_name)
+                        logger.info(
+                            "Uploaded docs manifest to Azure Blob Storage: %s",
+                            manifest_blob_name,
+                        )
                     else:
-                        logger.warning("Failed to upload docs manifest to Azure Blob Storage")
+                        logger.warning(
+                            "Failed to upload docs manifest to Azure Blob Storage"
+                        )
             except Exception as e:
                 logger.warning("Failed to save index to Azure Blob Storage: %s", str(e))
 
-    #function to load index and metadata from local files or Azure Blob Storage
+    # function to load index and metadata from local files or Azure Blob Storage
     def load_index(self) -> None:
         if self.index_path is None:
             raise ValueError("index_path not set, cannot load index")
@@ -476,53 +575,77 @@ class RAGSystem:
         manifest_file = self.index_path.with_suffix(".docs_manifest.pkl")
 
         local_files_exist = index_file.exists() and metadata_file.exists()
-        
+
         loaded_from_azure = False
         if not local_files_exist:
             if self.azure_blob and self.azure_blob.is_available():
                 try:
-                    index_blob_name, metadata_blob_name, manifest_blob_name = self._get_blob_names()
-                    
-                    if self.azure_blob.blob_exists(index_blob_name) and self.azure_blob.blob_exists(metadata_blob_name):
-                        logger.info("RAG: Local index not found, downloading from Azure Blob Storage...")
-                        
+                    index_blob_name, metadata_blob_name, manifest_blob_name = (
+                        self._get_blob_names()
+                    )
+
+                    if self.azure_blob.blob_exists(
+                        index_blob_name
+                    ) and self.azure_blob.blob_exists(metadata_blob_name):
+                        logger.info(
+                            "RAG: Local index not found, downloading from Azure Blob Storage..."
+                        )
+
                         index_data = self.azure_blob.download_bytes(index_blob_name)
                         if index_data:
                             index_file.parent.mkdir(parents=True, exist_ok=True)
                             with open(index_file, "wb") as f:
                                 f.write(index_data)
 
-                            metadata_data = self.azure_blob.download_bytes(metadata_blob_name)
+                            metadata_data = self.azure_blob.download_bytes(
+                                metadata_blob_name
+                            )
                             if metadata_data:
                                 metadata_file.parent.mkdir(parents=True, exist_ok=True)
                                 with open(metadata_file, "wb") as f:
                                     f.write(metadata_data)
-                                
-                                loaded_from_azure = True
-                                logger.info("RAG: Successfully downloaded index and metadata from Azure Blob Storage")
-                            else:
-                                logger.warning("RAG: Failed to download metadata from Azure Blob Storage")
 
-                            manifest_data = self.azure_blob.download_bytes(manifest_blob_name)
+                                loaded_from_azure = True
+                                logger.info(
+                                    "RAG: Successfully downloaded index and metadata from Azure Blob Storage"
+                                )
+                            else:
+                                logger.warning(
+                                    "RAG: Failed to download metadata from Azure Blob Storage"
+                                )
+
+                            manifest_data = self.azure_blob.download_bytes(
+                                manifest_blob_name
+                            )
                             if manifest_data:
                                 manifest_file.parent.mkdir(parents=True, exist_ok=True)
                                 with open(manifest_file, "wb") as f:
                                     f.write(manifest_data)
-                                logger.info("RAG: Downloaded docs manifest from Azure Blob Storage")
+                                logger.info(
+                                    "RAG: Downloaded docs manifest from Azure Blob Storage"
+                                )
                         else:
-                            logger.warning("RAG: Failed to download index from Azure Blob Storage")
+                            logger.warning(
+                                "RAG: Failed to download index from Azure Blob Storage"
+                            )
                     else:
                         logger.debug("RAG: Index not found in Azure Blob Storage")
                 except Exception as e:
-                    logger.warning("RAG: Failed to load from Azure Blob Storage: %s, falling back to local", str(e))
+                    logger.warning(
+                        "RAG: Failed to load from Azure Blob Storage: %s, falling back to local",
+                        str(e),
+                    )
 
         if not index_file.exists():
             raise FileNotFoundError(f"Index file not found: {index_file}")
         if not metadata_file.exists():
             raise FileNotFoundError(f"Metadata file not found: {metadata_file}")
-        
+
         if not loaded_from_azure and local_files_exist:
-            logger.info("RAG: Loading index from existing local files: %s (skipped Azure download)", index_file)
+            logger.info(
+                "RAG: Loading index from existing local files: %s (skipped Azure download)",
+                index_file,
+            )
         elif loaded_from_azure:
             logger.info("RAG: Loading index from downloaded files: %s", index_file)
         else:
@@ -542,7 +665,7 @@ class RAGSystem:
             self.docs_folder,
         )
 
-    #function to ensure local index is up-to-date with docs folder, rebuilding if needed
+    # function to ensure local index is up-to-date with docs folder, rebuilding if needed
     def ensure_index_up_to_date(self) -> None:
         if self.index_path is None:
             raise ValueError("index_path not set, cannot ensure index up to date")
@@ -602,19 +725,25 @@ class RAGSystem:
         )
         self.build_index()
 
-    #function to search the FAISS index for nearest chunks for a query
+    # function to search the FAISS index for nearest chunks for a query
     def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
         if self.index is None:
-            raise ValueError("Index not built. Call build_index() or load_index() first.")
+            raise ValueError(
+                "Index not built. Call build_index() or load_index() first."
+            )
 
         if not self.metadata:
-            raise ValueError("Metadata not loaded. Call build_index() or load_index() first.")
+            raise ValueError(
+                "Metadata not loaded. Call build_index() or load_index() first."
+            )
 
         query_length = len(query)
         query_hash = self._get_query_hash(query)
         logger.info(
             "RAG search: query_length=%d chars, k=%d, index_size=%d vectors",
-            query_length, k, self.index.ntotal
+            query_length,
+            k,
+            self.index.ntotal,
         )
         logger.debug("Query text (first 200 chars): %s", query[:200])
 
@@ -624,22 +753,37 @@ class RAGSystem:
             query_embedding = self._query_embedding_cache[query_hash]
             query_vector = query_embedding.reshape(1, -1).astype(np.float32)
             embedding_elapsed = time.time() - embedding_start
-            logger.debug("Query embedding loaded from cache in %.2fs, dimension=%d", embedding_elapsed, query_vector.shape[1])
+            logger.debug(
+                "Query embedding loaded from cache in %.2fs, dimension=%d",
+                embedding_elapsed,
+                query_vector.shape[1],
+            )
         else:
-            logger.debug("Query embedding cache MISS (hash=%s) - generating new embedding", query_hash[:16])
+            logger.debug(
+                "Query embedding cache MISS (hash=%s) - generating new embedding",
+                query_hash[:16],
+            )
             query_embedding = self._generate_embeddings([query])
             query_vector = query_embedding.reshape(1, -1).astype(np.float32)
             embedding_elapsed = time.time() - embedding_start
             self._query_embedding_cache[query_hash] = query_embedding[0]
             self._save_query_cache()
-            logger.debug("Query embedding generated in %.2fs, dimension=%d (cached for future use)", embedding_elapsed, query_vector.shape[1])
+            logger.debug(
+                "Query embedding generated in %.2fs, dimension=%d (cached for future use)",
+                embedding_elapsed,
+                query_vector.shape[1],
+            )
 
         logger.debug("Searching FAISS index...")
         search_start = time.time()
         search_k = min(k, self.index.ntotal)
         distances, indices = self.index.search(query_vector, search_k)
         search_elapsed = time.time() - search_start
-        logger.debug("FAISS search completed in %.2fs, found %d results", search_elapsed, len(indices[0]))
+        logger.debug(
+            "FAISS search completed in %.2fs, found %d results",
+            search_elapsed,
+            len(indices[0]),
+        )
 
         results = []
         for i, (distance, idx) in enumerate(zip(distances[0], indices[0])):
@@ -657,29 +801,40 @@ class RAGSystem:
                 results.append(result)
                 logger.debug(
                     "Result %d: file=%s, chunk=%d/%d, distance=%.4f, chunk_length=%d chars",
-                    i + 1, result["file_name"], result["chunk_index"] + 1,
-                    metadata.get("total_chunks", 0), distance, len(chunk_text)
+                    i + 1,
+                    result["file_name"],
+                    result["chunk_index"] + 1,
+                    metadata.get("total_chunks", 0),
+                    distance,
+                    len(chunk_text),
                 )
             else:
-                logger.warning("Index %d out of bounds (metadata size: %d)", idx, len(self.metadata))
+                logger.warning(
+                    "Index %d out of bounds (metadata size: %d)",
+                    idx,
+                    len(self.metadata),
+                )
 
         total_elapsed = time.time() - embedding_start
         logger.info(
             "RAG search complete: %d results returned in %.2fs (embedding: %.2fs, search: %.2fs)",
-            len(results), total_elapsed, embedding_elapsed, search_elapsed
+            len(results),
+            total_elapsed,
+            embedding_elapsed,
+            search_elapsed,
         )
-        
+
         if results:
             logger.debug(
                 "Result distance range: min=%.4f, max=%.4f, avg=%.4f",
                 min(r["distance"] for r in results),
                 max(r["distance"] for r in results),
-                sum(r["distance"] for r in results) / len(results)
+                sum(r["distance"] for r in results) / len(results),
             )
-        
+
         return results
 
-    #function to return basic statistics about the loaded index and metadata
+    # function to return basic statistics about the loaded index and metadata
     def get_stats(self) -> Dict[str, Any]:
         stats = {
             "index_built": self.index is not None,
@@ -694,4 +849,3 @@ class RAGSystem:
             stats["num_documents"] = len(unique_files)
 
         return stats
-

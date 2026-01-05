@@ -14,15 +14,17 @@ QUALITY_MODEL = "gpt-5-chat"
 
 
 @functools.lru_cache(maxsize=256)
-#function to call LLM and parse JSON quality assessment (cached)
+# function to call LLM and parse JSON quality assessment (cached)
 def _assess_response_quality_cached(
     requirement_json: str,
     response_text: str,
 ) -> Dict[str, Any]:
     requirement = RequirementItem(**json.loads(requirement_json))
-    
-    logger.info("Quality assessment: evaluating response for requirement %s", requirement.id)
-    
+
+    logger.info(
+        "Quality assessment: evaluating response for requirement %s", requirement.id
+    )
+
     user_prompt = f"""Evaluate the quality of this RFP response:
 
 REQUIREMENT:
@@ -39,7 +41,7 @@ Provide a quality assessment with:
 - suggestions: List of improvement suggestions
 
 Output JSON format."""
-    
+
     try:
         content = chat_completion(
             model=QUALITY_MODEL,
@@ -50,34 +52,35 @@ Output JSON format."""
             temperature=0.0,
             max_tokens=800,
         )
-        
+
         import re
+
         cleaned = content.replace("```json", "").replace("```", "").strip()
-        json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+        json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
         if json_match:
             result = json.loads(json_match.group(0))
         else:
             result = json.loads(cleaned)
-        
+
         score = float(result.get("score", 50))
         score = max(0, min(100, score))
-        
+
         completeness = result.get("completeness", "partial")
         if completeness not in ["complete", "partial", "incomplete"]:
             completeness = "partial"
-        
+
         relevance = result.get("relevance", "medium")
         if relevance not in ["high", "medium", "low"]:
             relevance = "medium"
-        
+
         issues = result.get("issues", [])
         if not isinstance(issues, list):
             issues = []
-        
+
         suggestions = result.get("suggestions", [])
         if not isinstance(suggestions, list):
             suggestions = []
-        
+
         logger.info(
             "Quality assessment: score=%.1f, completeness=%s, relevance=%s, issues=%d",
             score,
@@ -85,7 +88,7 @@ Output JSON format."""
             relevance,
             len(issues),
         )
-        
+
         return {
             "score": score,
             "completeness": completeness,
@@ -93,7 +96,7 @@ Output JSON format."""
             "issues": issues,
             "suggestions": suggestions,
         }
-        
+
     except Exception as e:
         logger.error("Quality assessment failed: %s", e)
         return {
@@ -104,13 +107,14 @@ Output JSON format."""
             "suggestions": [],
         }
 
-#function to assess response quality using a cached LLM call wrapper
+
+# function to assess response quality using a cached LLM call wrapper
 def assess_response_quality(
     requirement: RequirementItem,
     response_text: str,
 ) -> Dict[str, Any]:
     requirement_json = json.dumps(requirement.model_dump(), sort_keys=True)
-    
+
     cache_info = _assess_response_quality_cached.cache_info()
     logger.info(
         "Quality assessment: starting (cache_hits=%d, cache_misses=%d, cache_size=%d/%d)",
@@ -119,14 +123,13 @@ def assess_response_quality(
         cache_info.currsize,
         cache_info.maxsize,
     )
-    
+
     result = _assess_response_quality_cached(requirement_json, response_text)
-    
+
     new_cache_info = _assess_response_quality_cached.cache_info()
     if new_cache_info.hits > cache_info.hits:
         logger.info("Quality assessment: cache HIT - returned cached result")
     else:
         logger.info("Quality assessment: cache MISS - processed new request")
-    
-    return result
 
+    return result

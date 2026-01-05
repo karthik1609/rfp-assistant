@@ -12,34 +12,37 @@ class CompanyInfo:
     primary_platforms: List[str]
     secondary_platforms: List[str]
     technologies: List[str]
-    
+
     company_name: str
     website: str
     established_year: str
     entities: List[str]
-    
+
     certifications: List[str]
-    
+
     pricing_models: List[str]
     pricing_approach: str
-    
+
     standard_processes: List[str]
     methodologies: List[str]
-    
+
     contact_email: Optional[str] = None
     contact_phone: Optional[str] = None
-    
+
     other_info: Dict[str, Any] = None
 
 
-class CompanyKnowledgeBase:    
-    #function to initialize the company knowledge base with default info
+class CompanyKnowledgeBase:
+    # function to initialize the company knowledge base with default info
     def __init__(self):
         self.info = self._load_company_info()
-        logger.info("Company knowledge base loaded with %d platforms, %d certifications", 
-                   len(self.info.primary_platforms), len(self.info.certifications))
-    
-    #function to load default company information into a CompanyInfo dataclass
+        logger.info(
+            "Company knowledge base loaded with %d platforms, %d certifications",
+            len(self.info.primary_platforms),
+            len(self.info.certifications),
+        )
+
+    # function to load default company information into a CompanyInfo dataclass
     def _load_company_info(self) -> CompanyInfo:
         return CompanyInfo(
             primary_platforms=[
@@ -62,7 +65,6 @@ class CompanyKnowledgeBase:
                 "AI/ML",
                 "Intelligent Automation",
             ],
-            
             company_name="fusionAIx",
             website="www.fusionaix.com",
             established_year="2023",
@@ -71,12 +73,10 @@ class CompanyKnowledgeBase:
                 "India-based technology arm (incorporated 20 July 2023)",
             ],
             contact_email="contact@fusionaix.com",
-            
             certifications=[
                 "Pega Certified",
                 "Great Place To Work® Certified Company (2025–26)",
             ],
-            
             pricing_models=[
                 "Fixed Price",
                 "Time and Materials",
@@ -87,7 +87,6 @@ class CompanyKnowledgeBase:
                 "time and materials for agile development, and managed services for ongoing support. "
                 "Pricing is tailored to project scope, timeline, and client requirements."
             ),
-            
             standard_processes=[
                 "Agile/Scrum methodology",
                 "Structured knowledge transfer",
@@ -100,7 +99,6 @@ class CompanyKnowledgeBase:
                 "Low-Code Development",
                 "Modernization Strategies",
             ],
-            
             other_info={
                 "pega_constellation_implementations": "20+",
                 "industries_served": [
@@ -108,47 +106,53 @@ class CompanyKnowledgeBase:
                     "Banking & Finance",
                     "Government & Public Sector",
                     "Automotive & Fleet Management",
-                    "Travel & Tourism"
+                    "Travel & Tourism",
                 ],
                 "services": [
                     "Low Code/No Code",
                     "Digital Process Transformation",
-                    "AI & Data"
+                    "AI & Data",
                 ],
             },
         )
-    
-    #function to check whether the KB has relevant info for a given topic
+
+    # function to check whether the KB has relevant info for a given topic
     def has_info(self, topic: str) -> bool:
         topic_lower = topic.lower()
-        
+
         all_platforms = self.info.primary_platforms + self.info.secondary_platforms
         if any(platform.lower() in topic_lower for platform in all_platforms):
             return True
-        
+
         if any(tech.lower() in topic_lower for tech in self.info.technologies):
             return True
-        
+
         if any(cert.lower() in topic_lower for cert in self.info.certifications):
             return True
-        
-        if any(keyword in topic_lower for keyword in ["pricing", "cost", "price", "budget", "fee"]):
+
+        if any(
+            keyword in topic_lower
+            for keyword in ["pricing", "cost", "price", "budget", "fee"]
+        ):
             return True
 
         if any(proc.lower() in topic_lower for proc in self.info.standard_processes):
             return True
         if any(meth.lower() in topic_lower for meth in self.info.methodologies):
             return True
-        
-        if any(keyword in topic_lower for keyword in ["company", "firm", "organization", "vendor"]):
+
+        if any(
+            keyword in topic_lower
+            for keyword in ["company", "firm", "organization", "vendor"]
+        ):
             return True
-        
+
         return False
-    
-    #function to retrieve a short info string for a given topic if available
+
+    # function to retrieve a short info string for a given topic if available
     def get_info(self, topic: str) -> Optional[str]:
         topic_lower = topic.lower()
-        
+
         all_platforms = self.info.primary_platforms + self.info.secondary_platforms
         for platform in all_platforms:
             if platform.lower() in topic_lower:
@@ -156,33 +160,41 @@ class CompanyKnowledgeBase:
                     return f"fusionAIx's primary platform is {platform}. We have 20+ implementations globally."
                 else:
                     return f"fusionAIx also works with {platform}."
-        
+
         for tech in self.info.technologies:
             if tech.lower() in topic_lower:
                 return f"fusionAIx has expertise in {tech}."
-        
-        if any(keyword in topic_lower for keyword in ["pricing", "cost", "price", "budget", "fee"]):
+
+        if any(
+            keyword in topic_lower
+            for keyword in ["pricing", "cost", "price", "budget", "fee"]
+        ):
             return self.info.pricing_approach
-        
-        if any(keyword in topic_lower for keyword in ["certification", "certified", "cert"]):
+
+        if any(
+            keyword in topic_lower for keyword in ["certification", "certified", "cert"]
+        ):
             if self.info.certifications:
                 return f"fusionAIx holds the following certifications: {', '.join(self.info.certifications)}."
             return "Certification information is available upon request."
-        
+
         for proc in self.info.standard_processes:
             if proc.lower() in topic_lower:
                 return f"fusionAIx uses {proc} as a standard process."
-        
+
         for meth in self.info.methodologies:
             if meth.lower() in topic_lower:
                 return f"fusionAIx employs {meth} methodology."
-        
-        if any(keyword in topic_lower for keyword in ["company", "firm", "organization", "vendor"]):
+
+        if any(
+            keyword in topic_lower
+            for keyword in ["company", "firm", "organization", "vendor"]
+        ):
             return f"{self.info.company_name} ({self.info.website}) was established in {self.info.established_year}."
-        
+
         return None
-    
-    #function to list all known topics covered by the company KB
+
+    # function to list all known topics covered by the company KB
     def get_all_known_topics(self) -> List[str]:
         topics = []
         topics.extend(self.info.primary_platforms)
@@ -194,8 +206,8 @@ class CompanyKnowledgeBase:
         topics.extend(self.info.methodologies)
         topics.extend(["company", "firm", "organization"])
         return topics
-    
-    #function to format company info into a prompt-friendly block of text
+
+    # function to format company info into a prompt-friendly block of text
     def format_for_prompt(self) -> str:
         parts = []
         parts.append("KNOWN COMPANY INFORMATION (Do NOT ask questions about these):")
@@ -228,4 +240,3 @@ class CompanyKnowledgeBase:
             parts.append(f"  - {proc}")
         parts.append("")
         return "\n".join(parts)
-

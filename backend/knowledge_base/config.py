@@ -5,7 +5,7 @@ COMPANY_WEBSITE = "www.fusionaix.com"
 COMPANY_ESTABLISHED = "2023"
 COMPANY_ENTITIES = [
     "UK-based consultancy (incorporated 3 August 2023)",
-    "India-based technology arm (incorporated 20 July 2023)"
+    "India-based technology arm (incorporated 20 July 2023)",
 ]
 
 KEY_STATISTICS = {
@@ -19,18 +19,9 @@ INDUSTRIES = [
     "Banking & Finance",
     "Government & Public Sector",
     "Automotive & Fleet Management",
-    "Travel & Tourism"
+    "Travel & Tourism",
 ]
 
-PLATFORMS = [
-    "Pega Constellation",
-    "Microsoft Power Platform",
-    "ServiceNow"
-]
+PLATFORMS = ["Pega Constellation", "Microsoft Power Platform", "ServiceNow"]
 
-SERVICES = [
-    "Low Code/No Code",
-    "Digital Process Transformation",
-    "AI & Data"
-]
-
+SERVICES = ["Low Code/No Code", "Digital Process Transformation", "AI & Data"]

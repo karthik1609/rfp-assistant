@@ -18,7 +18,8 @@ from backend.memory.mem0_client import search_memories
 logger = logging.getLogger(__name__)
 STRUCTURED_RESPONSE_MODEL = "gpt-5-chat"
 
-#function to format retrieved RAG chunks into a compact examples block
+
+# function to format retrieved RAG chunks into a compact examples block
 def format_retrieved_chunks(
     chunks: List[Dict[str, Any]],
     max_chunks: int = 4,
@@ -57,7 +58,8 @@ def format_retrieved_chunks(
 
     return "\n".join(formatted)
 
-#function to generate a full structured RFP response document using LLM and RAG
+
+# function to generate a full structured RFP response document using LLM and RAG
 def run_structured_response_agent(
     requirements_result: RequirementsResult,
     structure_detection: StructureDetectionResult,
@@ -69,67 +71,95 @@ def run_structured_response_agent(
     qa_context: Optional[str] = None,
 ) -> ResponseResult:
     if not structure_detection.has_explicit_structure:
-        raise ValueError("Cannot generate structured response without explicit structure")
-    
+        raise ValueError(
+            "Cannot generate structured response without explicit structure"
+        )
+
     logger.info(
         "Structured response agent: starting (sections=%d, solution_reqs=%d)",
         len(structure_detection.detected_sections),
         len(requirements_result.solution_requirements),
     )
-    
+
     retrieved_chunks: List[Dict[str, Any]] = []
     if rag_system is not None:
         try:
             all_chunks = []
             seen_chunk_ids = set()
-            
-            structure_chunks = rag_system.search(structure_detection.structure_description, k=min(3, num_retrieval_chunks))
+
+            structure_chunks = rag_system.search(
+                structure_detection.structure_description,
+                k=min(3, num_retrieval_chunks),
+            )
             for chunk in structure_chunks:
-                chunk_id = chunk.get("chunk_id") or str(chunk.get("chunk_text", ""))[:50]
+                chunk_id = (
+                    chunk.get("chunk_id") or str(chunk.get("chunk_text", ""))[:50]
+                )
                 if chunk_id not in seen_chunk_ids:
                     all_chunks.append(chunk)
                     seen_chunk_ids.add(chunk_id)
-            
+
             for req in requirements_result.solution_requirements[:5]:
                 if len(all_chunks) >= num_retrieval_chunks * 2:
                     break
                 try:
-                    req_chunks = rag_system.search(req.source_text, k=min(2, num_retrieval_chunks))
+                    req_chunks = rag_system.search(
+                        req.source_text, k=min(2, num_retrieval_chunks)
+                    )
                     for chunk in req_chunks:
-                        chunk_id = chunk.get("chunk_id") or str(chunk.get("chunk_text", ""))[:50]
+                        chunk_id = (
+                            chunk.get("chunk_id")
+                            or str(chunk.get("chunk_text", ""))[:50]
+                        )
                         if chunk_id not in seen_chunk_ids:
                             all_chunks.append(chunk)
                             seen_chunk_ids.add(chunk_id)
                 except Exception as req_e:
-                    logger.warning("Failed to search RAG for requirement %s: %s", req.id, req_e)
-            
-            retrieved_chunks = all_chunks[:num_retrieval_chunks * 2]
-            logger.info("Retrieved %d chunks from RAG (searched structure + %d requirements)", len(retrieved_chunks), min(5, len(requirements_result.solution_requirements)))
+                    logger.warning(
+                        "Failed to search RAG for requirement %s: %s", req.id, req_e
+                    )
+
+            retrieved_chunks = all_chunks[: num_retrieval_chunks * 2]
+            logger.info(
+                "Retrieved %d chunks from RAG (searched structure + %d requirements)",
+                len(retrieved_chunks),
+                min(5, len(requirements_result.solution_requirements)),
+            )
         except Exception as e:
             logger.warning("Failed to retrieve chunks from RAG: %s", str(e))
             retrieved_chunks = []
-    
-    chunks_text = format_retrieved_chunks(retrieved_chunks, max_chunks=5, max_total_chars=3000)
+
+    chunks_text = format_retrieved_chunks(
+        retrieved_chunks, max_chunks=5, max_total_chars=3000
+    )
     fusionaix_context = ""
     if knowledge_base is not None:
         try:
-            req_text = " ".join([
-                req.source_text[:100]
-                for req in requirements_result.solution_requirements[:5]
-            ])
+            req_text = " ".join(
+                [
+                    req.source_text[:100]
+                    for req in requirements_result.solution_requirements[:5]
+                ]
+            )
             fusionaix_context = knowledge_base.format_for_prompt(req_text)
             if len(fusionaix_context) > 2000:
                 fusionaix_context = fusionaix_context[:2000] + "..."
-            logger.info("Included fusionAIx knowledge base context (%d chars, from %d requirements)", len(fusionaix_context), min(8, len(requirements_result.solution_requirements)))
+            logger.info(
+                "Included fusionAIx knowledge base context (%d chars, from %d requirements)",
+                len(fusionaix_context),
+                min(8, len(requirements_result.solution_requirements)),
+            )
         except Exception as kb_exc:
             logger.warning("Failed to format knowledge base context: %s", kb_exc)
             fusionaix_context = ""
     solution_reqs_parts = []
     for req in requirements_result.solution_requirements:
-        req_summary = req.source_text[:150] + ("..." if len(req.source_text) > 150 else "")
+        req_summary = req.source_text[:150] + (
+            "..." if len(req.source_text) > 150 else ""
+        )
         solution_reqs_parts.append(f"- {req_summary}")
     solution_reqs_text = "\n".join(solution_reqs_parts)
-    
+
     structure_desc = structure_detection.structure_description
     if len(structure_desc) > 500:
         structure_desc = structure_desc[:500] + "..."
@@ -137,47 +167,72 @@ def run_structured_response_agent(
     try:
         clarity_input = solution_reqs_text
         clarity = _clarity_check(clarity_input or "", structure_desc or None)
-        logger.info("Structured clarity check: %s (questions=%d)", clarity.get("clarity"), len(clarity.get("questions") or []))
-        logger.debug("Structured clarity raw output: %s", (clarity.get("raw") or "")[:2000])
+        logger.info(
+            "Structured clarity check: %s (questions=%d)",
+            clarity.get("clarity"),
+            len(clarity.get("questions") or []),
+        )
+        logger.debug(
+            "Structured clarity raw output: %s", (clarity.get("raw") or "")[:2000]
+        )
         if clarity.get("questions"):
             logger.info("Structured clarity questions: %s", clarity.get("questions"))
 
         retrieved_memories: List[Dict[str, Any]] = []
         if clarity.get("clarity") == "unclear":
             try:
-                retrieved_memories = search_memories(clarity_input or "", max_results=5, stage="requirements")
+                retrieved_memories = search_memories(
+                    clarity_input or "", max_results=5, stage="requirements"
+                )
                 if retrieved_memories:
                     ids_scores = []
                     for m in retrieved_memories:
                         uid = (m.get("user_id") or "")[:12]
                         score = m.get("score") or 0.0
                         ids_scores.append(f"{uid}:{score:.3f}")
-                    logger.info("Structured flow included %d local memory snippets (ids/scores=%s)", len(retrieved_memories), ",".join(ids_scores))
+                    logger.info(
+                        "Structured flow included %d local memory snippets (ids/scores=%s)",
+                        len(retrieved_memories),
+                        ",".join(ids_scores),
+                    )
             except Exception as mem_e:
                 logger.warning("Structured flow local memory search failed: %s", mem_e)
         else:
-            logger.debug("Structured flow skipping mem0; requirements considered clear by LLM")
+            logger.debug(
+                "Structured flow skipping mem0; requirements considered clear by LLM"
+            )
     except Exception as e:
         logger.warning("Structured clarity check failed: %s", e)
         retrieved_memories = []
-    
+
     retrieved_edit_memories: List[Dict[str, Any]] = []
     try:
         search_query = solution_reqs_text or structure_desc or ""
         if search_query:
-            retrieved_edit_memories = search_memories(search_query, max_results=3, stage="edit_memory")
+            retrieved_edit_memories = search_memories(
+                search_query, max_results=3, stage="edit_memory"
+            )
             if retrieved_edit_memories:
                 ids_scores = []
                 for m in retrieved_edit_memories:
                     uid = (m.get("user_id") or "")[:12]
                     score = m.get("score") or 0.0
                     ids_scores.append(f"{uid}:{score:.3f}")
-                logger.info("Structured flow included %d edit memory snippets (ids/scores=%s)", len(retrieved_edit_memories), ",".join(ids_scores))
+                logger.info(
+                    "Structured flow included %d edit memory snippets (ids/scores=%s)",
+                    len(retrieved_edit_memories),
+                    ",".join(ids_scores),
+                )
     except Exception as edit_mem_exc:
         logger.warning("Structured flow edit memory search failed: %s", edit_mem_exc)
 
-    if 'retrieved_memories' in locals() and retrieved_memories:
-        user_prompt_extra_mem = ["", "=" * 80, "LOCAL MEMORY (mem0) - Relevant snippets (use as additional context):", "=" * 80]
+    if "retrieved_memories" in locals() and retrieved_memories:
+        user_prompt_extra_mem = [
+            "",
+            "=" * 80,
+            "LOCAL MEMORY (mem0) - Relevant snippets (use as additional context):",
+            "=" * 80,
+        ]
         for mem in retrieved_memories:
             score = mem.get("score")
             snippet = mem.get("snippet") or ""
@@ -189,126 +244,156 @@ def run_structured_response_agent(
         mem_section_text = "\n".join(user_prompt_extra_mem)
     else:
         mem_section_text = ""
-    
+
     user_prompt_parts = [
         "RFP RESPONSE STRUCTURE REQUIREMENTS:",
         structure_desc,
         "",
         f"REQUIRED SECTIONS (in order):",
     ]
-    
+
     for i, section in enumerate(structure_detection.detected_sections, 1):
         user_prompt_parts.append(f"{i}. {section}")
-    
-    user_prompt_parts.extend([
-        "",
-        "SOLUTION REQUIREMENTS TO ADDRESS:",
-        solution_reqs_text,
-        "",
-    ])
-    
+
+    user_prompt_parts.extend(
+        [
+            "",
+            "SOLUTION REQUIREMENTS TO ADDRESS:",
+            solution_reqs_text,
+            "",
+        ]
+    )
+
     if fusionaix_context:
-        user_prompt_parts.extend([
-            "FUSIONAIX CONTEXT:",
-            fusionaix_context,
-            "",
-        ])
-    
+        user_prompt_parts.extend(
+            [
+                "FUSIONAIX CONTEXT:",
+                fusionaix_context,
+                "",
+            ]
+        )
+
     if chunks_text:
-        user_prompt_parts.extend([
-            chunks_text,
-            "",
-        ])
+        user_prompt_parts.extend(
+            [
+                chunks_text,
+                "",
+            ]
+        )
 
     if mem_section_text:
         user_prompt_parts.append(mem_section_text)
         user_prompt_parts.append("")
-    
+
     if retrieved_edit_memories:
-        user_prompt_parts.extend([
-            "=" * 80,
-            "USER EDIT MEMORIES - Learn from past corrections (CRITICAL - apply these patterns):",
-            "=" * 80,
-        ])
+        user_prompt_parts.extend(
+            [
+                "=" * 80,
+                "USER EDIT MEMORIES - Learn from past corrections (CRITICAL - apply these patterns):",
+                "=" * 80,
+            ]
+        )
         for mem in retrieved_edit_memories:
             score = mem.get("score")
             messages = mem.get("messages") or []
             try:
                 import json
-                content_str = str(messages[1].get("content", "") if len(messages) > 1 else "")
+
+                content_str = str(
+                    messages[1].get("content", "") if len(messages) > 1 else ""
+                )
                 if content_str:
                     edit_data = json.loads(content_str)
                     sentence_changes = edit_data.get("sentence_changes", [])
                     if sentence_changes:
                         user_prompt_parts.append(f"EDIT MEMORY (score={score:.3f}):")
-                        user_prompt_parts.append("The user previously corrected these sentences:")
-                        for sent_change in sentence_changes[:10]:  # Limit to 10 sentences
+                        user_prompt_parts.append(
+                            "The user previously corrected these sentences:"
+                        )
+                        for sent_change in sentence_changes[
+                            :10
+                        ]:  # Limit to 10 sentences
                             original = sent_change.get("original", "")
                             edited = sent_change.get("edited", "")
                             if original and edited:
                                 user_prompt_parts.append(f"  Original: {original}")
                                 user_prompt_parts.append(f"  Corrected: {edited}")
                                 user_prompt_parts.append("")
-                        user_prompt_parts.append("IMPORTANT: Apply similar corrections in your response. Pay attention to:")
-                        user_prompt_parts.append("  - Capitalization of names, terms, and proper nouns")
-                        user_prompt_parts.append("  - Specific terminology the user prefers")
-                        user_prompt_parts.append("  - Content additions or modifications the user made")
+                        user_prompt_parts.append(
+                            "IMPORTANT: Apply similar corrections in your response. Pay attention to:"
+                        )
+                        user_prompt_parts.append(
+                            "  - Capitalization of names, terms, and proper nouns"
+                        )
+                        user_prompt_parts.append(
+                            "  - Specific terminology the user prefers"
+                        )
+                        user_prompt_parts.append(
+                            "  - Content additions or modifications the user made"
+                        )
                         user_prompt_parts.append("")
             except Exception:
                 msg_content = "".join([str(m.get("content") or "") for m in messages])
                 piece = msg_content[:1500]
                 user_prompt_parts.append(f"EDIT MEMORY (score={score:.3f}): {piece}")
                 user_prompt_parts.append("")
-    
+
     if qa_context:
         qa_context_limited = qa_context
         if len(qa_context) > 4000:
-            qa_context_limited = qa_context[:4000] + "\n\n[Q&A context truncated for length - use provided information fully]"
-        
-        user_prompt_parts.extend([
-            "=" * 80,
-            "USER-PROVIDED INFORMATION (CRITICAL - MUST USE FULL DETAILS):",
-            "=" * 80,
-            "NOTE: The information below was provided by the user in response to questions. This takes precedence over RAG examples above.",
+            qa_context_limited = (
+                qa_context[:4000]
+                + "\n\n[Q&A context truncated for length - use provided information fully]"
+            )
+
+        user_prompt_parts.extend(
+            [
+                "=" * 80,
+                "USER-PROVIDED INFORMATION (CRITICAL - MUST USE FULL DETAILS):",
+                "=" * 80,
+                "NOTE: The information below was provided by the user in response to questions. This takes precedence over RAG examples above.",
+                "",
+                qa_context_limited,
+                "",
+                "CRITICAL INSTRUCTIONS FOR USING Q&A INFORMATION:",
+                "- The Q&A above contains SPECIFIC, DETAILED information that the user provided about their solution.",
+                "- You MUST use the FULL, COMPLETE answers from the Q&A - do NOT summarize or condense them.",
+                "- If a question asks about previous projects, use the FULL project details provided in the answer.",
+                "- If a question asks about certifications, use the FULL list of certifications provided.",
+                "- If a question asks about team structure, use the FULL team details provided.",
+                "- If a question asks about capabilities, use the FULL capability descriptions provided.",
+                "- Integrate the COMPLETE information naturally throughout your response - do NOT reduce it to one sentence.",
+                "- The user provided detailed answers for a reason - they want those details in the response.",
+                "- Match the depth and detail level of the Q&A answers in your response.",
+                "",
+            ]
+        )
+
+    user_prompt_parts.extend(
+        [
+            "TASK: Generate a complete RFP response document following the EXACT structure above.",
             "",
-            qa_context_limited,
+            "YOUR RESPONSE MUST:",
+            "1. Include ALL required sections in the specified order",
+            "2. Address relevant solution requirements in each section",
+            "3. Be comprehensive and detailed - write 1500-3000 words per major section. Each section should be thorough, specific, and address multiple requirements where relevant",
+            "4. Use Q&A information FULLY: If Q&A context is provided above, use the COMPLETE, FULL answers - do not summarize them. If the user provided detailed project information, include those full details. If they provided a list of certifications, include the full list. Match the depth of detail provided in the Q&A.",
+            "5. Use fusionAIx capabilities, case studies, and accelerators where relevant",
+            "6. Follow the structure EXACTLY as specified",
+            "7. Include specific details, metrics, and concrete examples throughout",
+            "8. Be as detailed as the per-requirement responses would be - this is a complete document, not a summary",
+            "9. Each section should be comprehensive enough to stand alone as a detailed response",
             "",
-            "CRITICAL INSTRUCTIONS FOR USING Q&A INFORMATION:",
-            "- The Q&A above contains SPECIFIC, DETAILED information that the user provided about their solution.",
-            "- You MUST use the FULL, COMPLETE answers from the Q&A - do NOT summarize or condense them.",
-            "- If a question asks about previous projects, use the FULL project details provided in the answer.",
-            "- If a question asks about certifications, use the FULL list of certifications provided.",
-            "- If a question asks about team structure, use the FULL team details provided.",
-            "- If a question asks about capabilities, use the FULL capability descriptions provided.",
-            "- Integrate the COMPLETE information naturally throughout your response - do NOT reduce it to one sentence.",
-            "- The user provided detailed answers for a reason - they want those details in the response.",
-            "- Match the depth and detail level of the Q&A answers in your response.",
-            "",
-        ])
-    
-    user_prompt_parts.extend([
-        "TASK: Generate a complete RFP response document following the EXACT structure above.",
-        "",
-        "YOUR RESPONSE MUST:",
-        "1. Include ALL required sections in the specified order",
-        "2. Address relevant solution requirements in each section",
-        "3. Be comprehensive and detailed - write 1500-3000 words per major section. Each section should be thorough, specific, and address multiple requirements where relevant",
-        "4. Use Q&A information FULLY: If Q&A context is provided above, use the COMPLETE, FULL answers - do not summarize them. If the user provided detailed project information, include those full details. If they provided a list of certifications, include the full list. Match the depth of detail provided in the Q&A.",
-        "5. Use fusionAIx capabilities, case studies, and accelerators where relevant",
-        "6. Follow the structure EXACTLY as specified",
-        "7. Include specific details, metrics, and concrete examples throughout",
-        "8. Be as detailed as the per-requirement responses would be - this is a complete document, not a summary",
-        "9. Each section should be comprehensive enough to stand alone as a detailed response",
-        "",
-        "Generate the complete structured response now:",
-    ])
-    
+            "Generate the complete structured response now:",
+        ]
+    )
+
     user_prompt = "\n".join(user_prompt_parts)
-    
+
     system_tokens = len(STRUCTURED_RESPONSE_SYSTEM_PROMPT) // 4
     user_tokens = len(user_prompt) // 4
     total_input_tokens = system_tokens + user_tokens + 100
-    
+
     logger.debug(
         "Token breakdown - system: %d, user: %d, total: %d | "
         "Structure desc: %d chars, Solution reqs: %d chars, KB: %d chars, RAG: %d chars, Q&A: %d chars",
@@ -321,15 +406,22 @@ def run_structured_response_agent(
         len(chunks_text),
         len(qa_context) if qa_context else 0,
     )
-    
+
     if max_tokens is None:
         num_sections = len(structure_detection.detected_sections)
         num_requirements = len(requirements_result.solution_requirements)
-        estimated_output_tokens = max(12000, num_sections * 2500 + num_requirements * 200)
+        estimated_output_tokens = max(
+            12000, num_sections * 2500 + num_requirements * 200
+        )
         max_tokens = min(estimated_output_tokens, 16384)
-        logger.info("Calculated max_tokens: %d (sections=%d, requirements=%d, estimated_output=%d)", 
-                   max_tokens, num_sections, num_requirements, estimated_output_tokens)
-    
+        logger.info(
+            "Calculated max_tokens: %d (sections=%d, requirements=%d, estimated_output=%d)",
+            max_tokens,
+            num_sections,
+            num_requirements,
+            estimated_output_tokens,
+        )
+
     logger.info(
         "Structured response agent: calling LLM (model=%s, temperature=%s, max_tokens=%s, input_tokens=%d)",
         STRUCTURED_RESPONSE_MODEL,
@@ -337,7 +429,7 @@ def run_structured_response_agent(
         max_tokens,
         total_input_tokens,
     )
-    
+
     response_text = chat_completion(
         model=STRUCTURED_RESPONSE_MODEL,
         messages=[
@@ -347,17 +439,16 @@ def run_structured_response_agent(
         temperature=temperature,
         max_tokens=max_tokens,
     )
-    
+
     logger.info(
         "Structured response agent: finished (response_length=%d, chunks_used=%d)",
         len(response_text),
         len(retrieved_chunks),
     )
-    
+
     return ResponseResult(
         response_text=response_text,
         build_query_used=f"Structured response following: {', '.join(structure_detection.detected_sections)}",
         num_retrieved_chunks=len(retrieved_chunks),
         notes=f"Generated structured response with {len(structure_detection.detected_sections)} sections, using {len(retrieved_chunks)} RAG chunks",
     )
-

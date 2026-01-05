@@ -4,6 +4,7 @@ from backend.document_formatter.pdf_generator import generate_rfp_pdf
 
 try:
     from backend.document_formatter.docx_generator import generate_rfp_docx
+
     DOCX_AVAILABLE = True
 except ImportError:
     DOCX_AVAILABLE = False

@@ -16,15 +16,14 @@ load_dotenv()
 
 
 class AzureBlobStorage:
-    #function to initialize Azure Blob storage client and container
+    # function to initialize Azure Blob storage client and container
     def __init__(
         self,
         connection_string: Optional[str] = None,
         container_name: str = "rag-indexes",
     ):
-        self.connection_string = (
-            connection_string
-            or os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
+        self.connection_string = connection_string or os.environ.get(
+            "AZURE_STORAGE_CONNECTION_STRING"
         )
         self.container_name = container_name
         self.blob_service_client: Optional[BlobServiceClient] = None
@@ -50,17 +49,14 @@ class AzureBlobStorage:
                             self.container_name,
                         )
                     else:
-                        logger.warning(
-                            "Failed to create/verify container: %s", str(e)
-                        )
+                        logger.warning("Failed to create/verify container: %s", str(e))
                         raise
                 logger.info(
-                    "Azure Blob Storage initialized (container: %s)", self.container_name
+                    "Azure Blob Storage initialized (container: %s)",
+                    self.container_name,
                 )
             except Exception as e:
-                logger.error(
-                    "Failed to initialize Azure Blob Storage: %s", str(e)
-                )
+                logger.error("Failed to initialize Azure Blob Storage: %s", str(e))
                 raise
         else:
             logger.warning(
@@ -68,11 +64,13 @@ class AzureBlobStorage:
                 "Set AZURE_STORAGE_CONNECTION_STRING environment variable to enable."
             )
 
-    #function to check if Azure Blob storage client and container are available
+    # function to check if Azure Blob storage client and container are available
     def is_available(self) -> bool:
-        return self.blob_service_client is not None and self.container_client is not None
+        return (
+            self.blob_service_client is not None and self.container_client is not None
+        )
 
-    #function to upload a file from disk to Azure Blob Storage
+    # function to upload a file from disk to Azure Blob Storage
     def upload_file(
         self, blob_name: str, file_path: Path, overwrite: bool = True
     ) -> bool:
@@ -103,10 +101,8 @@ class AzureBlobStorage:
             )
             return False
 
-    #function to upload raw bytes as a blob to Azure Blob Storage
-    def upload_bytes(
-        self, blob_name: str, data: bytes, overwrite: bool = True
-    ) -> bool:
+    # function to upload raw bytes as a blob to Azure Blob Storage
+    def upload_bytes(self, blob_name: str, data: bytes, overwrite: bool = True) -> bool:
         if not self.is_available():
             logger.warning("Azure Blob Storage not available, cannot upload bytes")
             return False
@@ -129,7 +125,7 @@ class AzureBlobStorage:
             )
             return False
 
-    #function to download a blob to a local file path
+    # function to download a blob to a local file path
     def download_file(self, blob_name: str, file_path: Path) -> bool:
         if not self.is_available():
             logger.warning("Azure Blob Storage not available, cannot download file")
@@ -169,7 +165,7 @@ class AzureBlobStorage:
             )
             return False
 
-    #function to download raw bytes for a named blob
+    # function to download raw bytes for a named blob
     def download_bytes(self, blob_name: str) -> Optional[bytes]:
         if not self.is_available():
             logger.warning("Azure Blob Storage not available, cannot download bytes")
@@ -207,7 +203,7 @@ class AzureBlobStorage:
             )
             return None
 
-    #function to check whether a blob exists in the container
+    # function to check whether a blob exists in the container
     def blob_exists(self, blob_name: str) -> bool:
         if not self.is_available():
             return False
@@ -221,7 +217,7 @@ class AzureBlobStorage:
             )
             return False
 
-    #function to delete a blob by name
+    # function to delete a blob by name
     def delete_blob(self, blob_name: str) -> bool:
         if not self.is_available():
             logger.warning("Azure Blob Storage not available, cannot delete blob")
@@ -237,12 +233,10 @@ class AzureBlobStorage:
             )
             return True
         except Exception as e:
-            logger.error(
-                "Failed to delete blob from Azure Blob Storage: %s", str(e)
-            )
+            logger.error("Failed to delete blob from Azure Blob Storage: %s", str(e))
             return False
 
-    #function to list blob names optionally filtered by prefix
+    # function to list blob names optionally filtered by prefix
     def list_blobs(self, prefix: Optional[str] = None) -> list[str]:
         if not self.is_available():
             return []
@@ -251,7 +245,5 @@ class AzureBlobStorage:
             blobs = self.container_client.list_blobs(name_starts_with=prefix)
             return [blob.name for blob in blobs]
         except Exception as e:
-            logger.error(
-                "Failed to list blobs in Azure Blob Storage: %s", str(e)
-            )
+            logger.error("Failed to list blobs in Azure Blob Storage: %s", str(e))
             return []
