@@ -40,8 +40,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint-backend
 
-    services:
-
     steps:
       - uses: actions/checkout@v4
 
