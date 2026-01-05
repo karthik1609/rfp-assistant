@@ -1,6 +1,6 @@
 ## Complete Pipeline Sequence
 
-The RFP Assistant processes documents through the following sequence from user upload to final output:
+The RFP Assistant processes documents through the following sequence from user upload to final output:  .
 
 ### 1. Document Upload
 
