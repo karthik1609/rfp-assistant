@@ -7,7 +7,7 @@ import Button from './Button'
 import ChatInterface from './ChatInterface'
 import PreviewBox from './PreviewBox'
 import DocumentViewer from './DocumentViewer'
-import { formatPreprocessOutput, formatRequirementsOutput } from '../utils/formatters'
+import { formatPreprocessOutput, formatRequirementsOutput, preprocessToEditableText, parsePreprocessFromText, requirementsToEditableText, parseRequirementsFromText } from '../utils/formatters'
 import './AgentPanel.css'
 
 const AGENT_CONFIGS = {
@@ -282,7 +282,7 @@ export default function AgentPanel({ agentId }) {
   // Handle preprocess editing
   const handleTogglePreprocessEdit = () => {
     if (!pipelineData.preprocess) return
-    setPreprocessDraft(JSON.stringify(pipelineData.preprocess, null, 2))
+    setPreprocessDraft(preprocessToEditableText(pipelineData.preprocess))
     updateEditable('preprocess', !editable.preprocess)
   }
 
@@ -290,9 +290,9 @@ export default function AgentPanel({ agentId }) {
     try {
       let parsed
       try {
-        parsed = JSON.parse(preprocessDraft)
+        parsed = parsePreprocessFromText(preprocessDraft)
       } catch (e) {
-        alert('Preprocess JSON is invalid. Please fix the syntax before saving.')
+        alert(`Preprocess text is invalid: ${e.message}\n\nPlease check that all required sections are present and properly formatted.`)
         return
       }
 
@@ -544,7 +544,7 @@ export default function AgentPanel({ agentId }) {
 
   const handleToggleRequirementsEdit = () => {
     if (!pipelineData.requirements) return
-    setRequirementsDraft(JSON.stringify(pipelineData.requirements, null, 2))
+    setRequirementsDraft(requirementsToEditableText(pipelineData.requirements))
     updateEditable('requirements', !editable.requirements)
   }
 
@@ -552,9 +552,10 @@ export default function AgentPanel({ agentId }) {
     try {
       let parsed
       try {
-        parsed = JSON.parse(requirementsDraft)
+        // Pass original requirements to preserve structure_detection
+        parsed = parseRequirementsFromText(requirementsDraft, pipelineData.requirements)
       } catch (e) {
-        alert('Requirements JSON is invalid. Please fix the syntax before saving.')
+        alert(`Requirements text is invalid: ${e.message}\n\nPlease check that all required sections are present and properly formatted.`)
         return
       }
       updateStatus('requirements', 'processing')
@@ -616,11 +617,23 @@ export default function AgentPanel({ agentId }) {
         </div>
       ) : agentId === 'preprocess' && editable.preprocess && pipelineData.preprocess ? (
         <div className="editable-section">
+          <div style={{ 
+            marginBottom: '0.75rem', 
+            padding: '0.75rem', 
+            background: 'rgba(59, 130, 246, 0.1)', 
+            border: '1px solid rgba(59, 130, 246, 0.3)', 
+            borderRadius: '0.5rem',
+            fontSize: '0.875rem',
+            color: '#3b82f6'
+          }}>
+            💡 <strong>Editing Mode:</strong> Edit the text below. The main content is in "CLEANED TEXT" section. Make sure to keep the section headers (=== ... ===) intact.
+          </div>
           <textarea
             className="edit-textarea"
             value={preprocessDraft}
             onChange={(e) => setPreprocessDraft(e.target.value)}
             rows={20}
+            style={{ fontFamily: 'monospace', fontSize: '0.875rem' }}
           />
           <div className="edit-actions">
             <Button onClick={handleSavePreprocess} disabled={status === 'processing'}>
@@ -633,11 +646,23 @@ export default function AgentPanel({ agentId }) {
         </div>
       ) : agentId === 'requirements' && editable.requirements && pipelineData.requirements ? (
         <div className="editable-section">
+          <div style={{ 
+            marginBottom: '0.75rem', 
+            padding: '0.75rem', 
+            background: 'rgba(59, 130, 246, 0.1)', 
+            border: '1px solid rgba(59, 130, 246, 0.3)', 
+            borderRadius: '0.5rem',
+            fontSize: '0.875rem',
+            color: '#3b82f6'
+          }}>
+            💡 <strong>Editing Mode:</strong> Edit requirements below. Each requirement has an ID, Category, and Text. You can add new requirements by following the same format. Make sure to keep section headers (=== ... ===) and separators (---) intact.
+          </div>
           <textarea
             className="edit-textarea"
             value={requirementsDraft}
             onChange={(e) => setRequirementsDraft(e.target.value)}
             rows={20}
+            style={{ fontFamily: 'monospace', fontSize: '0.875rem' }}
           />
           <div className="edit-actions">
             <Button onClick={handleSaveRequirements} disabled={status === 'processing'}>
@@ -715,7 +740,7 @@ export default function AgentPanel({ agentId }) {
             style={{ marginLeft: '0.5rem' }}
             disabled={statuses.requirements === 'processing' || statuses.requirements === 'complete'}
           >
-            {editable.preprocess ? 'Close editor' : 'Edit preprocess JSON'}
+            {editable.preprocess ? 'Close editor' : 'Edit preprocess'}
           </Button>
         </div>
       )}
@@ -742,7 +767,7 @@ export default function AgentPanel({ agentId }) {
             onClick={handleToggleRequirementsEdit}
             style={{ marginLeft: '0.5rem' }}
           >
-            {editable.requirements ? 'Close editor' : 'Edit requirements JSON'}
+            {editable.requirements ? 'Close editor' : 'Edit requirements'}
           </Button>
         </div>
       )}
