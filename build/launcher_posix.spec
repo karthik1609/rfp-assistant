@@ -30,9 +30,8 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
+    [],
+    exclude_binaries=True,
     [],
     name="rfp-launcher",
     debug=False,
@@ -49,6 +48,9 @@ exe = EXE(
 )
 coll = COLLECT(
     exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     a.binaries,
     a.zipfiles,
     a.datas,
