@@ -42,8 +42,38 @@ jobs:
             "Linux") archive_name="rfp-launcher-linux.tar.gz" ;;
             *) archive_name="rfp-launcher-posix.tar.gz" ;;
           esac
+          stage_dir="dist/posix/rfp-assistant"
+          rm -rf "$stage_dir"
+          mkdir -p "$stage_dir"
+          cp -R dist/posix/rfp-launcher "$stage_dir/"
+          items=(
+            "backend"
+            "frontend"
+            "docs"
+            "azure"
+            "tests"
+            "docker-compose.yml"
+            ".env_example"
+            "backend.Dockerfile"
+            "frontend.Dockerfile"
+            "Dockerfile"
+            "Makefile"
+            "pyproject.toml"
+            "requirements.txt"
+            "requirements_test.txt"
+            "package.json"
+            "package-lock.json"
+            "deploy2.sh"
+            "README.md"
+            "vite.config.js"
+          )
+          for item in "${items[@]}"; do
+            if [ -e "$item" ]; then
+              cp -R "$item" "$stage_dir/"
+            fi
+          done
           archive_path="dist/posix/$archive_name"
-          tar -C dist/posix -czf "$archive_path" rfp-launcher
+          tar -C dist/posix -czf "$archive_path" rfp-assistant
           echo "archive_name=$archive_name" >> "$GITHUB_OUTPUT"
           echo "archive_path=$archive_path" >> "$GITHUB_OUTPUT"
         shell: bash
@@ -80,9 +110,39 @@ jobs:
         shell: pwsh
         run: |
           $archiveName = "rfp-launcher-windows.zip"
+          $stageDir = "dist/windows/rfp-assistant"
+          if (Test-Path $stageDir) { Remove-Item $stageDir -Recurse -Force }
+          New-Item -ItemType Directory -Path $stageDir | Out-Null
+          Copy-Item -Recurse -Force "dist/windows/rfp-launcher" -Destination $stageDir
+          $items = @(
+            "backend",
+            "frontend",
+            "docs",
+            "azure",
+            "tests",
+            "docker-compose.yml",
+            ".env_example",
+            "backend.Dockerfile",
+            "frontend.Dockerfile",
+            "Dockerfile",
+            "Makefile",
+            "pyproject.toml",
+            "requirements.txt",
+            "requirements_test.txt",
+            "package.json",
+            "package-lock.json",
+            "deploy2.sh",
+            "README.md",
+            "vite.config.js"
+          )
+          foreach ($item in $items) {
+            if (Test-Path $item) {
+              Copy-Item -Recurse -Force $item -Destination $stageDir
+            }
+          }
           $archivePath = "dist/windows/$archiveName"
-          if (Test-Path $archivePath) { Remove-Item $archivePath }
-          Compress-Archive -Path "dist/windows/rfp-launcher" -DestinationPath $archivePath
+          if (Test-Path $archivePath) { Remove-Item $archivePath -Force }
+          Compress-Archive -Path $stageDir -DestinationPath $archivePath
           "archive_name=$archiveName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "archive_path=$archivePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 

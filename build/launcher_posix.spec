@@ -1,7 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import pathlib
-from PyInstaller.utils.hooks import Tree
 
 project_root = pathlib.Path(__file__).resolve().parents[1]
 script_path = project_root / "scripts" / "launch_rfp_assistant.py"
@@ -12,9 +11,6 @@ datas = [
     (str(project_root / "backend.Dockerfile"), "."),
     (str(project_root / "frontend.Dockerfile"), "."),
     (str(project_root / "Dockerfile"), "."),
-    Tree(str(project_root / "backend"), prefix="backend"),
-    Tree(str(project_root / "frontend"), prefix="frontend"),
-    Tree(str(project_root / "docs"), prefix="docs"),
 ]
 
 hiddenimports = []
