@@ -2,7 +2,7 @@
 
 import pathlib
 
-project_root = pathlib.Path(__file__).resolve().parents[1]
+project_root = pathlib.Path.cwd()
 script_path = project_root / "scripts" / "launch_rfp_assistant.py"
 
 datas = [
