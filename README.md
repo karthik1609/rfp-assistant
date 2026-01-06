@@ -170,14 +170,81 @@ Generated documents are saved to:
 - `output/pdfs/` — PDF files (if generated)
 - `output/markdown/` — Markdown files (if generated)
 
-# How to use
+## Run the stack
 
-Start up Docker:
+### Option 1: Launcher executables (recommended)
 
-docker compose up -d --buildThen open the UI at `http://localhost:8000` and work through the tabs:
+We ship native binaries that wrap the same workflow as `docker compose up -d` while handling prerequisite checks, `.env` creation, and container health monitoring for you.
+
+#### macOS / Linux
+1. Install Docker Desktop or Docker Engine and ensure the `docker` CLI is on your `PATH`.
+2. Download the latest `rfp-launcher-macos.tar.gz` or `rfp-launcher-linux.tar.gz` artifact from the project releases and extract it.
+3. Run `chmod +x rfp-launcher` the first time (macOS users may need to allow the binary in System Settings → Privacy & Security).
+4. Execute `./rfp-launcher`. The launcher will:
+   - Copy `.env_example` to `.env` if needed and highlight missing secrets.
+   - Verify Docker Desktop/Engine is running.
+   - Bring up the stack using `docker compose up -d` and wait for healthy containers.
+   - Print the frontend (`http://localhost:8000`) and backend (`http://localhost:8001/docs`) URLs when ready.
+5. Re-run `./rfp-launcher --down` to stop the containers when finished.
+
+#### Windows (.exe, no WSL required)
+1. Install **Docker Desktop for Windows** (includes Docker Compose v2). WSL2 is **not** required; the launcher interfaces with Docker Desktop directly.
+2. Download the latest `rfp-launcher-windows.zip` release and extract the contents.
+3. Double-click `rfp-launcher.exe` (or run it from PowerShell). On the first run Windows SmartScreen may warn about an unrecognized app; choose “More info” → “Run anyway”.
+4. The launcher mirrors the macOS/Linux flow: it creates `.env`, validates Docker, starts the containers, waits for readiness, and prints service URLs.
+5. Use `rfp-launcher.exe --down --remove-volumes` when you want to tear everything down.
+
+Common CLI flags (across all platforms):
+- `--build`: force a fresh container build
+- `--pull`: ensure remote images are up to date before launching
+- `--status`: display container states after the primary action
+- `--timeout <seconds>`: override the health-check wait period (default 180 seconds)
+- `--no-wait`: skip polling for healthy containers
+
+### Option 2: Manual Docker workflow
+
+If you prefer running the commands yourself:
+
+```bash
+cp .env_example .env  # populate secrets
+docker compose up -d --build
+```
+
+Then open the UI at `http://localhost:8000` and work through the tabs:
 
 1. Upload your RFP.
 2. Review/edit OCR text and run **Preprocess**.
 3. Inspect and, if needed, edit **Requirements**.
 4. Build and confirm the **Build Query**, then answer any critical questions in the chat panel.
 5. Generate the final DOCX/PDF from the **Response** tab and download it.
+
+## Building launcher binaries locally
+
+Prerequisites:
+- Python 3.11 (or newer) with `pip install pyinstaller`
+- Docker Desktop / Engine installed for runtime testing
+
+Available automation helpers:
+
+```bash
+# macOS / Linux
+make launcher-posix
+# Windows (PowerShell)
+make launcher-windows
+```
+
+The artifacts are written to:
+- `dist/posix/rfp-launcher` (macOS/Linux)
+- `dist/windows/rfp-launcher.exe` (Windows)
+
+You can pass extra PyInstaller flags via `PYINSTALLER`, e.g.,
+
+```bash
+PYINSTALLER="pyinstaller --onedir" make launcher-posix
+```
+
+To clean previous builds:
+
+```bash
+make clean-launcher
+```
