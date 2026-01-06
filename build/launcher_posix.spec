@@ -5,13 +5,7 @@ import pathlib
 project_root = pathlib.Path.cwd()
 script_path = project_root / "scripts" / "launch_rfp_assistant.py"
 
-datas = [
-    (str(project_root / "docker-compose.yml"), "."),
-    (str(project_root / ".env_example"), "."),
-    (str(project_root / "backend.Dockerfile"), "."),
-    (str(project_root / "frontend.Dockerfile"), "."),
-    (str(project_root / "Dockerfile"), "."),
-]
+datas = []
 
 hiddenimports = []
 
