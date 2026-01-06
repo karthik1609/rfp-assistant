@@ -19,7 +19,7 @@ htmlcov/
 
 # Node/React
 node_modules/
-dist/
+# dist/
 .vite/
 *.log
 .DS_Store
